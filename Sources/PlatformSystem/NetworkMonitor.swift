@@ -1,6 +1,6 @@
 import Foundation
 
-#if canImport(Network)
+#if canImport(Network) && canImport(Darwin)
 import Network
 #endif
 
@@ -14,14 +14,14 @@ public enum NetworkInterfaceKind: String, Sendable, Hashable {
 public final class NetworkMonitor: @unchecked Sendable {
   public static let shared = NetworkMonitor()
 
-  #if canImport(Network)
+  #if canImport(Network) && canImport(Darwin)
   private let monitor = NWPathMonitor()
   private let lock = NSLock()
   private var path: NWPath?
   #endif
 
   public init() {
-    #if canImport(Network)
+    #if canImport(Network) && canImport(Darwin)
     monitor.pathUpdateHandler = { [weak self] path in
       guard let self else { return }
       lock.withLock { self.path = path }
@@ -31,14 +31,14 @@ public final class NetworkMonitor: @unchecked Sendable {
   }
 
   deinit {
-    #if canImport(Network)
+    #if canImport(Network) && canImport(Darwin)
     monitor.cancel()
     #endif
   }
 
   /// The interface kind in use, `nil` while offline
   public var interface: NetworkInterfaceKind? {
-    #if canImport(Network)
+    #if canImport(Network) && canImport(Darwin)
     guard let path = lock.withLock({ path }), path.status == .satisfied else { return nil }
     if path.usesInterfaceType(.wifi) { return .wifi }
     if path.usesInterfaceType(.cellular) { return .cellular }
