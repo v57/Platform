@@ -54,6 +54,14 @@ targets += [
 ]
 products += [.library(name: "PlatformImage", targets: ["PlatformImage"])]
 
+// Broadcast: named messages of a few strings between one user's processes (DistributedNotificationCenter on the Mac,
+// Unix datagram sockets in $XDG_RUNTIME_DIR on Linux).
+targets += [
+  .target(name: "PlatformBroadcast", swiftSettings: library),
+  .testTarget(name: "PlatformBroadcastTests", dependencies: ["PlatformBroadcast"], swiftSettings: library),
+]
+products += [.library(name: "PlatformBroadcast", targets: ["PlatformBroadcast"])]
+
 let package = Package(
   name: "Platform",
   platforms: [.macOS(.v14), .iOS(.v17)],
