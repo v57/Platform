@@ -24,7 +24,8 @@ targets += [
 products += [.library(name: "PlatformPower", targets: ["PlatformPower"])]
 
 // Media: a player engine (open, transport, rate, volume, audio and subtitle tracks, time and end events) and its
-// SwiftUI video view, on AVFoundation on Apple platforms and GStreamer (playbin) on Linux.
+// SwiftUI video view, on AVFoundation on Apple platforms and GStreamer (playbin) on Linux; and Now Playing (the media
+// keys and the system's media controls) on MediaPlayer, or MPRIS over D-Bus on Linux.
 targets += [
   .target(name: "PlatformMedia", swiftSettings: library),
   .testTarget(name: "PlatformMediaTests", dependencies: ["PlatformMedia"], swiftSettings: library),
@@ -87,8 +88,10 @@ package.targets.append(
   .systemLibrary(
     name: "CGStreamer", pkgConfig: "gstreamer-video-1.0",
     providers: [.apt(["libgstreamer1.0-dev", "libgstreamer-plugins-base1.0-dev"])]))
+// GIO's D-Bus for NowPlaying's MPRIS server (`apt install libglib2.0-dev`, which GTK's headers bring along).
+package.targets.append(.systemLibrary(name: "CGio", pkgConfig: "gio-2.0", providers: [.apt(["libglib2.0-dev"])]))
 for target in package.targets where target.name == "PlatformMedia" {
-  target.dependencies.append("CGStreamer")
+  target.dependencies += ["CGStreamer", "CGio"]
 }
 // GdkPixbuf for PlatformImage (`apt install libgdk-pixbuf-2.0-dev`; GTK desktops have its run-time library).
 package.targets.append(
