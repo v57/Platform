@@ -71,6 +71,14 @@ targets += [
 ]
 products += [.library(name: "PlatformBroadcast", targets: ["PlatformBroadcast"])]
 
+// HTTP: a response body as it arrives, byte by byte or line by line (URLSession's bytes(for:) on Apple platforms, a
+// data delegate on swift-corelibs-foundation).
+targets += [
+  .target(name: "PlatformHTTP", swiftSettings: library),
+  .testTarget(name: "PlatformHTTPTests", dependencies: ["PlatformHTTP"], swiftSettings: library),
+]
+products += [.library(name: "PlatformHTTP", targets: ["PlatformHTTP"])]
+
 let package = Package(
   name: "Platform",
   platforms: [.macOS(.v14), .iOS(.v17)],
