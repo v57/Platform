@@ -31,6 +31,29 @@ targets += [
 ]
 products += [.library(name: "PlatformMedia", targets: ["PlatformMedia"])]
 
+// Disk usage: du-style walks that count hard links and APFS clones once (fts and getattrlist on the Mac, glibc's fts
+// through CFTS on Linux), and identical files made into clones of one copy (APFS only).
+targets += [
+  .target(name: "CFTS"),
+  .target(
+    name: "PlatformDiskUsage", dependencies: [.target(name: "CFTS", condition: .when(platforms: [.linux]))],
+    swiftSettings: library),
+  .testTarget(name: "PlatformDiskUsageTests", dependencies: ["PlatformDiskUsage"], swiftSettings: library),
+]
+products += [.library(name: "PlatformDiskUsage", targets: ["PlatformDiskUsage"])]
+
+// Language model: the system's on-device model (Foundation Models on Apple platforms; none on Linux yet, which says so).
+targets += [.target(name: "PlatformLanguageModel", swiftSettings: library)]
+products += [.library(name: "PlatformLanguageModel", targets: ["PlatformLanguageModel"])]
+
+// Images: an image file's pixel size and its picture scaled down as RGBA (ImageIO on Apple platforms, GdkPixbuf on
+// Linux).
+targets += [
+  .target(name: "PlatformImage", swiftSettings: library),
+  .testTarget(name: "PlatformImageTests", dependencies: ["PlatformImage"], swiftSettings: library),
+]
+products += [.library(name: "PlatformImage", targets: ["PlatformImage"])]
+
 let package = Package(
   name: "Platform",
   platforms: [.macOS(.v14), .iOS(.v17)],
@@ -58,5 +81,11 @@ package.targets.append(
     providers: [.apt(["libgstreamer1.0-dev", "libgstreamer-plugins-base1.0-dev"])]))
 for target in package.targets where target.name == "PlatformMedia" {
   target.dependencies.append("CGStreamer")
+}
+// GdkPixbuf for PlatformImage (`apt install libgdk-pixbuf-2.0-dev`; GTK desktops have its run-time library).
+package.targets.append(
+  .systemLibrary(name: "CGdkPixbuf", pkgConfig: "gdk-pixbuf-2.0", providers: [.apt(["libgdk-pixbuf-2.0-dev"])]))
+for target in package.targets where target.name == "PlatformImage" {
+  target.dependencies.append("CGdkPixbuf")
 }
 #endif
