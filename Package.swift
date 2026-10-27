@@ -23,6 +23,14 @@ targets += [
 ]
 products += [.library(name: "PlatformPower", targets: ["PlatformPower"])]
 
+// System: the device's name, model, CPU load, memory, storage and network kind (Mach, sysctl and Network.framework
+// on Apple platforms, /proc and /sys on Linux).
+targets += [
+  .target(name: "PlatformSystem", swiftSettings: library),
+  .testTarget(name: "PlatformSystemTests", dependencies: ["PlatformSystem"], swiftSettings: library),
+]
+products += [.library(name: "PlatformSystem", targets: ["PlatformSystem"])]
+
 // Media: a player engine (open, transport, rate, volume, audio and subtitle tracks, time and end events) and its
 // SwiftUI video view, on AVFoundation on Apple platforms and GStreamer (playbin) on Linux; and Now Playing (the media
 // keys and the system's media controls) on MediaPlayer, or MPRIS over D-Bus on Linux.
