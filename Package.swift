@@ -79,6 +79,14 @@ targets += [
 ]
 products += [.library(name: "PlatformHTTP", targets: ["PlatformHTTP"])]
 
+// Web: a web page (load, history, title and loading state, JavaScript, navigation decisions) and its SwiftUI view, on
+// WKWebView on Apple platforms and WebKitGTK on Linux.
+targets += [
+  .target(name: "PlatformWeb", swiftSettings: library),
+  .testTarget(name: "PlatformWebTests", dependencies: ["PlatformWeb"], swiftSettings: library),
+]
+products += [.library(name: "PlatformWeb", targets: ["PlatformWeb"])]
+
 let package = Package(
   name: "Platform",
   platforms: [.macOS(.v14), .iOS(.v17)],
@@ -92,7 +100,7 @@ let package = Package(
 package.dependencies.append(
   Context.environment["V57_LOCAL"] == nil
     ? .package(url: "https://github.com/v57/SwiftUI.git", branch: "main") : .package(path: "../SwiftUI"))
-for target in package.targets where target.name == "PlatformMedia" {
+for target in package.targets where ["PlatformMedia", "PlatformWeb"].contains(target.name) {
   target.dependencies.append(.product(name: "SwiftUI", package: "SwiftUI"))
 }
 #endif
@@ -114,5 +122,11 @@ package.targets.append(
   .systemLibrary(name: "CGdkPixbuf", pkgConfig: "gdk-pixbuf-2.0", providers: [.apt(["libgdk-pixbuf-2.0-dev"])]))
 for target in package.targets where target.name == "PlatformImage" {
   target.dependencies.append("CGdkPixbuf")
+}
+// WebKitGTK for PlatformWeb (`apt install libwebkit2gtk-4.1-dev`; libwebkit2gtk-4.1-0 at run time).
+package.targets.append(
+  .systemLibrary(name: "CWebKitGtk", pkgConfig: "webkit2gtk-4.1", providers: [.apt(["libwebkit2gtk-4.1-dev"])]))
+for target in package.targets where target.name == "PlatformWeb" {
+  target.dependencies.append("CWebKitGtk")
 }
 #endif
