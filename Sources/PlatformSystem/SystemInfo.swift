@@ -120,6 +120,37 @@ public enum SystemInfo {
     #endif
   }
 
+  /// How hot the device runs, as the system rates it: ProcessInfo's thermal state on Apple platforms; on Linux the
+  /// hottest thermal zone against its passive, hot and critical trip points
+  public static var thermalState: ThermalState {
+    #if canImport(Darwin)
+    switch ProcessInfo.processInfo.thermalState {
+    case .nominal: .nominal
+    case .fair: .fair
+    case .serious: .serious
+    case .critical: .critical
+    @unknown default: .nominal
+    }
+    #elseif os(Linux)
+    var state = ThermalState.nominal
+    let root = "/sys/class/thermal"
+    for zone in (try? FileManager.default.contentsOfDirectory(atPath: root)) ?? [] where zone.hasPrefix("thermal_zone") {
+      let folder = root + "/" + zone
+      guard let temperature = read(folder + "/temp").flatMap(Int.init) else { continue }
+      for index in 0..<16 {
+        guard let type = read(folder + "/trip_point_\(index)_type") else { break }
+        guard let trip = read(folder + "/trip_point_\(index)_temp").flatMap(Int.init), trip > 0, temperature >= trip
+        else { continue }
+        let reached: ThermalState = type == "critical" ? .critical : type == "hot" ? .serious : type == "passive" ? .fair : .nominal
+        if reached.rank > state.rank { state = reached }
+      }
+    }
+    return state
+    #else
+    return .nominal
+    #endif
+  }
+
   #if canImport(Darwin)
   static func sysctl(_ name: String) -> String? {
     var size = 0
@@ -150,6 +181,20 @@ public enum SystemInfo {
     return nil
   }
   #endif
+}
+
+/// How hot the device runs
+public enum ThermalState: String, Sendable, Hashable {
+  case nominal, fair, serious, critical
+
+  var rank: Int {
+    switch self {
+    case .nominal: 0
+    case .fair: 1
+    case .serious: 2
+    case .critical: 3
+    }
+  }
 }
 
 /// The share of time the CPUs were busy between two samples.
