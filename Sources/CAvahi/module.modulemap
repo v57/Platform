@@ -1,0 +1,6 @@
+module CAvahi [system] {
+  header "shim.h"
+  link "avahi-client"
+  link "avahi-common"
+  export *
+}

@@ -87,6 +87,14 @@ targets += [
 ]
 products += [.library(name: "PlatformWeb", targets: ["PlatformWeb"])]
 
+// Discovery: browsing and advertising DNS-SD (Bonjour) services on the local network (dns_sd on Apple platforms, the
+// avahi-daemon through libavahi-client on Linux).
+targets += [
+  .target(name: "PlatformDiscovery", swiftSettings: library),
+  .testTarget(name: "PlatformDiscoveryTests", dependencies: ["PlatformDiscovery"], swiftSettings: library),
+]
+products += [.library(name: "PlatformDiscovery", targets: ["PlatformDiscovery"])]
+
 let package = Package(
   name: "Platform",
   platforms: [.macOS(.v14), .iOS(.v17)],
@@ -128,5 +136,12 @@ package.targets.append(
   .systemLibrary(name: "CWebKitGtk", pkgConfig: "webkit2gtk-4.1", providers: [.apt(["libwebkit2gtk-4.1-dev"])]))
 for target in package.targets where target.name == "PlatformWeb" {
   target.dependencies.append("CWebKitGtk")
+}
+// Avahi for PlatformDiscovery (`apt install libavahi-client-dev`; desktops run avahi-daemon, without which nothing is
+// found or advertised).
+package.targets.append(
+  .systemLibrary(name: "CAvahi", pkgConfig: "avahi-client", providers: [.apt(["libavahi-client-dev"])]))
+for target in package.targets where target.name == "PlatformDiscovery" {
+  target.dependencies.append("CAvahi")
 }
 #endif
