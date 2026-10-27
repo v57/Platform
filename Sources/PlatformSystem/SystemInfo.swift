@@ -32,6 +32,21 @@ public enum SystemInfo {
     return name.split(separator: ".").first.map(String.init) ?? name
   }
 
+  /// The operating system's version: `26.1` (macOS, iOS), a Linux distribution's `VERSION_ID` from os-release
+  /// (`24.04`; the kernel's version when there is none), Windows' `10.0.26100`.
+  public static var osVersion: String {
+    #if os(Linux)
+    if let release = read("/etc/os-release") ?? read("/usr/lib/os-release"),
+      let line = release.split(separator: "\n").first(where: { $0.hasPrefix("VERSION_ID=") })
+    {
+      let value = line.dropFirst("VERSION_ID=".count).trimmingCharacters(in: CharacterSet(charactersIn: "\"' "))
+      if !value.isEmpty { return value }
+    }
+    #endif
+    let version = ProcessInfo.processInfo.operatingSystemVersion
+    return "\(version.majorVersion).\(version.minorVersion)" + (version.patchVersion > 0 ? ".\(version.patchVersion)" : "")
+  }
+
   /// The hardware model: `Mac15,9`, `iPhone17,1` (the simulated one in the Simulator), a Linux machine's DMI product
   /// or device-tree model (`Raspberry Pi 5 Model B`); `nil` when the system doesn't say.
   public static var model: String? {
