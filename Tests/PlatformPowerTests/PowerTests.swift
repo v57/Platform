@@ -16,3 +16,23 @@ import Testing
   assertion.release()
   assertion.release()
 }
+
+@Test func presenceIsAwayWhenLockedAsleepOrIdle() {
+  #expect(!UserPresence(idle: 10).isAway(after: 300))
+  #expect(UserPresence(idle: 301).isAway(after: 300))
+  #expect(UserPresence(idle: 0, isLocked: true).isAway(after: 300))
+  #expect(UserPresence(idle: 0, isAsleep: true).isAway(after: 300))
+  // A device that can't tell is never away
+  #expect(!UserPresence().isAway(after: 300))
+}
+
+@MainActor @Test func presenceObservationReportsAtOnce() {
+  var reports = 0
+  let observation = UserPresence.observe { _ in reports += 1 }
+  #expect(reports == 1)
+  if UserPresence.isSupported {
+    #expect(observation.presence.idle != nil)
+    #expect(observation.presence.isLocked == false)
+  }
+  observation.cancel()
+}
