@@ -95,6 +95,15 @@ targets += [
 ]
 products += [.library(name: "PlatformDiscovery", targets: ["PlatformDiscovery"])]
 
+// Camera: capture from a camera (AVCaptureSession), H.264 encoding (VideoToolbox), fragmented MP4 (AVAssetWriter's HLS
+// profile), a live H.264 view (AVSampleBufferDisplayLayer), motion detection by frame differencing, and `CameraFeed`, what
+// a running camera offers to a HomeKit accessory server; no capture or encoding on Linux yet (it says so).
+targets += [
+  .target(name: "PlatformCamera", swiftSettings: library),
+  .testTarget(name: "PlatformCameraTests", dependencies: ["PlatformCamera"], swiftSettings: library),
+]
+products += [.library(name: "PlatformCamera", targets: ["PlatformCamera"])]
+
 let package = Package(
   name: "Platform",
   platforms: [.macOS(.v14), .iOS(.v17)],
@@ -108,7 +117,7 @@ let package = Package(
 package.dependencies.append(
   Context.environment["V57_LOCAL"] == nil
     ? .package(url: "https://github.com/v57/SwiftUI.git", branch: "main") : .package(path: "../SwiftUI"))
-for target in package.targets where ["PlatformMedia", "PlatformWeb"].contains(target.name) {
+for target in package.targets where ["PlatformMedia", "PlatformWeb", "PlatformCamera"].contains(target.name) {
   target.dependencies.append(.product(name: "SwiftUI", package: "SwiftUI"))
 }
 #endif
