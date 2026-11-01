@@ -23,8 +23,21 @@ public struct Bitmap: Sendable {
   public var bytesPerRow: Int { width * 4 }
 }
 
+/// The kinds of file `ImageFile.write` makes.
+public enum ImageFileFormat: Sendable, Hashable {
+  case png
+  /// Quality 0...1.
+  case jpeg(quality: Double)
+}
+
+public struct ImageFileError: Error, CustomStringConvertible, Sendable {
+  public var description: String
+  public init(_ description: String) { self.description = description }
+}
+
 /// Image files (PNG, JPEG, HEIC on Apple platforms, WebP where the system reads it) without the platform's image
-/// types: their pixel size and their pictures scaled down for display. ImageIO on Apple platforms, GdkPixbuf on Linux.
+/// types: their pixel size, their pictures scaled down for display, and pictures written as PNG or JPEG. ImageIO on
+/// Apple platforms, GdkPixbuf on Linux.
 ///
 /// ```swift
 /// if let picture = ImageFile.thumbnail(at: url, maxPixel: 600) { … picture.width, picture.rgba … }
@@ -86,6 +99,70 @@ public nonisolated enum ImageFile {
   public static func load(at url: URL) -> Bitmap? {
     guard let size = pixelSize(at: url) else { return nil }
     return thumbnail(at: url, maxPixel: max(size.width, size.height))
+  }
+
+  /// Writes `bitmap` as a PNG or JPEG file at `url`, replacing what's there.
+  public static func write(_ bitmap: Bitmap, to url: URL, format: ImageFileFormat = .png) throws {
+    guard bitmap.width > 0, bitmap.height > 0, bitmap.rgba.count == bitmap.width * bitmap.height * 4 else {
+      throw ImageFileError("The picture has no pixels.")
+    }
+    #if canImport(ImageIO)
+      let data = Data(bitmap.rgba) as CFData
+      guard let provider = CGDataProvider(data: data),
+        let image = CGImage(
+          width: bitmap.width, height: bitmap.height, bitsPerComponent: 8, bitsPerPixel: 32,
+          bytesPerRow: bitmap.bytesPerRow, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+          bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue), provider: provider,
+          decode: nil, shouldInterpolate: true, intent: .defaultIntent)
+      else { throw ImageFileError("The picture couldn't be made.") }
+      let type: CFString
+      var options: [CFString: Any] = [:]
+      switch format {
+      case .png: type = "public.png" as CFString
+      case .jpeg(let quality):
+        type = "public.jpeg" as CFString
+        options[kCGImageDestinationLossyCompressionQuality] = quality
+      }
+      guard let destination = CGImageDestinationCreateWithURL(url as CFURL, type, 1, nil) else {
+        throw ImageFileError("Can't write \(url.lastPathComponent).")
+      }
+      CGImageDestinationAddImage(destination, image, options as CFDictionary)
+      guard CGImageDestinationFinalize(destination) else { throw ImageFileError("Can't write \(url.lastPathComponent).") }
+    #elseif os(Linux)
+      // GdkPixbuf takes straight (not premultiplied) alpha.
+      var pixels = bitmap.rgba
+      for index in stride(from: 0, to: pixels.count, by: 4) {
+        let a = Int(pixels[index + 3])
+        guard a > 0, a < 255 else { continue }
+        for c in 0..<3 { pixels[index + c] = UInt8(min(255, (Int(pixels[index + c]) * 255 + a / 2) / a)) }
+      }
+      try pixels.withUnsafeMutableBufferPointer { buffer in
+        guard
+          let pixbuf = gdk_pixbuf_new_from_data(
+            buffer.baseAddress, GDK_COLORSPACE_RGB, 1, 8, Int32(bitmap.width), Int32(bitmap.height),
+            Int32(bitmap.bytesPerRow), nil, nil)
+        else { throw ImageFileError("The picture couldn't be made.") }
+        defer { g_object_unref(UnsafeMutableRawPointer(pixbuf)) }
+        var error: UnsafeMutablePointer<GError>?
+        let saved: gboolean
+        switch format {
+        case .png:
+          saved = platform_pixbuf_save(pixbuf, url.path, "png", nil, &error)
+        case .jpeg(let quality):
+          // JPEG has no alpha: GdkPixbuf drops it.
+          let value = String(Int((quality * 100).rounded()))
+          saved = platform_pixbuf_save(pixbuf, url.path, "jpeg", value, &error)
+        }
+        if let error {
+          let message = String(cString: error.pointee.message)
+          g_error_free(error)
+          throw ImageFileError(message)
+        }
+        guard saved != 0 else { throw ImageFileError("Can't write \(url.lastPathComponent).") }
+      }
+    #else
+      throw ImageFileError("Writing pictures isn't available here.")
+    #endif
   }
 
   #if canImport(ImageIO)
