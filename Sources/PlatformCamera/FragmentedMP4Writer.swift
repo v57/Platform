@@ -3,7 +3,7 @@ import Foundation
 #if canImport(AVFoundation)
   @preconcurrency import AVFoundation
 
-  /// Writes encoded H.264 frames, as they are, into fragmented MP4 (AVAssetWriter's HLS profile): an initialization
+  /// Writes encoded H.264 or HEVC frames, as they are, into fragmented MP4 (AVAssetWriter's HLS profile): an initialization
   /// fragment, then one media fragment per `segmentDuration` that starts at a keyframe. An initialization fragment
   /// followed by media fragments, written one after the other, is a playable MP4 file; HomeKit Secure Video and HLS
   /// take the same fragments. Frames before the first keyframe are skipped; a change of parameter sets (another
@@ -42,7 +42,7 @@ import Foundation
     /// A new writer from this keyframe; the old one is cancelled (its last fragment is lost, as at a size change)
     private func start(with frame: EncodedVideoFrame) {
       stop()
-      guard let description = EncodedVideoFrame.formatDescription(parameterSets: frame.parameterSets) else { return }
+      guard let description = EncodedVideoFrame.formatDescription(parameterSets: frame.parameterSets, codec: frame.codec) else { return }
       let writer = AVAssetWriter(contentType: .mpeg4Movie)
       writer.outputFileTypeProfile = .mpeg4AppleHLS
       writer.preferredOutputSegmentInterval = CMTime(seconds: segmentDuration, preferredTimescale: 1000)

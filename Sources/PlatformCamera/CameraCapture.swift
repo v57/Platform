@@ -93,8 +93,8 @@ public enum CameraAccess: Sendable {
     private static let context = CIContext(options: [.cacheIntermediates: false])
   }
 
-  /// Captures pictures from one of this device's cameras (AVCaptureSession; Linux has no backend yet).
-  public final class CameraCapture: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampleBufferDelegate {
+  /// This device's cameras and camera access (AVFoundation); `CameraRig` captures from them.
+  public enum CameraCapture {
     public static var isAvailable: Bool { true }
 
     public static var access: CameraAccess {
@@ -110,19 +110,25 @@ public enum CameraAccess: Sendable {
       await AVCaptureDevice.requestAccess(for: .video)
     }
 
-    /// The cameras, the default one first
-    public static func devices() -> [CameraDevice] {
+    static var deviceTypes: [AVCaptureDevice.DeviceType] {
       #if os(macOS)
-        let types: [AVCaptureDevice.DeviceType] = [.builtInWideAngleCamera, .external, .continuityCamera]
+        [.builtInWideAngleCamera, .external, .continuityCamera]
       #else
-        let types: [AVCaptureDevice.DeviceType] = [.builtInWideAngleCamera, .builtInUltraWideCamera, .external]
+        [.builtInWideAngleCamera, .builtInUltraWideCamera, .builtInTelephotoCamera, .external]
       #endif
-      let found = AVCaptureDevice.DiscoverySession(deviceTypes: types, mediaType: .video, position: .unspecified).devices
-      let preferred = defaultDevice()?.uniqueID
-      return found.sorted { a, b in a.uniqueID == preferred && b.uniqueID != preferred }.map(Self.device)
     }
 
-    private static func device(_ device: AVCaptureDevice) -> CameraDevice {
+    static var discovery: AVCaptureDevice.DiscoverySession {
+      AVCaptureDevice.DiscoverySession(deviceTypes: deviceTypes, mediaType: .video, position: .unspecified)
+    }
+
+    /// The cameras, the default one first
+    public static func devices() -> [CameraDevice] {
+      let preferred = defaultDevice()?.uniqueID
+      return discovery.devices.sorted { a, b in a.uniqueID == preferred && b.uniqueID != preferred }.map(device)
+    }
+
+    static func device(_ device: AVCaptureDevice) -> CameraDevice {
       let position: CameraDevice.Position =
         switch device.position {
         case .front: .front
@@ -133,116 +139,13 @@ public enum CameraAccess: Sendable {
     }
 
     /// A security camera looks away from the screen: the back camera where there is one
-    private static func defaultDevice() -> AVCaptureDevice? {
+    static func defaultDevice() -> AVCaptureDevice? {
       AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
         ?? AVCaptureDevice.default(for: .video)
     }
 
-    /// Called on the capture queue for every picture
-    public var onFrame: (@Sendable (CameraFrame) -> Void)?
-    /// Called on the capture queue when capture stops by itself (the camera disconnected, another app took it)
-    public var onInterruption: (@Sendable (String) -> Void)?
-    public private(set) var device: CameraDevice?
-
-    private let deviceID: String?
-    private let width: Int
-    private let height: Int
-    private let fps: Int
-    private let session = AVCaptureSession()
-    private let queue = DispatchQueue(label: "dev.v57.PlatformCamera.capture", qos: .userInitiated)
-    private var observers: [NSObjectProtocol] = []
-
-    /// `device`: a `CameraDevice.id`, or nil for the default camera. Captures the size closest to `width` × `height`
-    /// the camera offers, at `fps` at most.
-    public init(device: String? = nil, width: Int = 1280, height: Int = 720, fps: Int = 15) {
-      deviceID = device
-      self.width = width
-      self.height = height
-      self.fps = fps
-    }
-
-    deinit {
-      observers.forEach(NotificationCenter.default.removeObserver)
-    }
-
-    public func start() throws {
-      guard Self.access == .authorized else { throw CameraError.notAuthorized }
-      guard let camera = deviceID.flatMap(AVCaptureDevice.init(uniqueID:)) ?? Self.defaultDevice() else {
-        throw CameraError.noDevice
-      }
-      device = Self.device(camera)
-      session.beginConfiguration()
-      defer { session.commitConfiguration() }
-      session.inputs.forEach(session.removeInput)
-      session.outputs.forEach(session.removeOutput)
-      let input: AVCaptureDeviceInput
-      do {
-        input = try AVCaptureDeviceInput(device: camera)
-      } catch {
-        throw CameraError.failed(error.localizedDescription)
-      }
-      guard session.canAddInput(input) else { throw CameraError.failed("The camera is in use.") }
-      session.addInput(input)
-      let preset: AVCaptureSession.Preset = width > 1280 ? .hd1920x1080 : width > 640 ? .hd1280x720 : .vga640x480
-      session.sessionPreset = session.canSetSessionPreset(preset) ? preset : .high
-      let output = AVCaptureVideoDataOutput()
-      output.alwaysDiscardsLateVideoFrames = true
-      let formats = output.availableVideoPixelFormatTypes
-      let format = [kCVPixelFormatType_420YpCbCr8BiPlanarFullRange, kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange]
-        .first(where: formats.contains) ?? kCVPixelFormatType_32BGRA
-      output.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: format]
-      output.setSampleBufferDelegate(self, queue: queue)
-      guard session.canAddOutput(output) else { throw CameraError.failed("The camera can’t deliver pictures.") }
-      session.addOutput(output)
-      observe()
-      // After the configuration is committed: the preset resets the frame rate
-      nonisolated(unsafe) let device = camera
-      queue.async { [session, self] in
-        self.limitFrameRate(device)
-        session.startRunning()
-      }
-    }
-
-    public func stop() {
-      queue.async { [session] in session.stopRunning() }
-    }
-
-    /// Lowers the frame rate to `fps` where the camera's format allows it
-    private func limitFrameRate(_ camera: AVCaptureDevice) {
-      guard (try? camera.lockForConfiguration()) != nil else { return }
-      defer { camera.unlockForConfiguration() }
-      let ranges = camera.activeFormat.videoSupportedFrameRateRanges
-      guard ranges.contains(where: { $0.minFrameRate <= Double(fps) && Double(fps) <= $0.maxFrameRate }) else { return }
-      let duration = CMTime(value: 1, timescale: CMTimeScale(fps))
-      camera.activeVideoMinFrameDuration = duration
-      camera.activeVideoMaxFrameDuration = duration
-    }
-
-    private func observe() {
-      guard observers.isEmpty else { return }
-      let center = NotificationCenter.default
-      observers.append(
-        center.addObserver(forName: AVCaptureSession.runtimeErrorNotification, object: session, queue: nil) { [weak self] note in
-          let error = note.userInfo?[AVCaptureSessionErrorKey] as? Error
-          self?.onInterruption?(error?.localizedDescription ?? "The camera stopped.")
-        })
-      #if os(iOS)
-        observers.append(
-          center.addObserver(forName: AVCaptureSession.wasInterruptedNotification, object: session, queue: nil) { [weak self] _ in
-            self?.onInterruption?("Another app is using the camera, or Hub went to the background.")
-          })
-        observers.append(
-          center.addObserver(forName: AVCaptureSession.interruptionEndedNotification, object: session, queue: nil) { [weak self] _ in
-            self?.onInterruption?("")
-          })
-      #endif
-    }
-
-    public func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-      guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-      let time = CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds
-      onFrame?(CameraFrame(pixelBuffer: pixelBuffer, time: time))
-    }
+    /// The default camera's id
+    public static var defaultDeviceID: String? { defaultDevice()?.uniqueID }
   }
 #else
   /// One captured picture (no camera backend on this platform yet).
@@ -254,17 +157,12 @@ public enum CameraAccess: Sendable {
     public func jpeg(maxWidth: Int = 1280, quality: Double = 0.7) -> Data? { nil }
   }
 
-  /// Captures pictures from a camera: no backend on this platform yet, so `start()` throws `CameraError.unavailable`.
-  public final class CameraCapture: @unchecked Sendable {
+  /// This device's cameras: none on this platform yet.
+  public enum CameraCapture {
     public static var isAvailable: Bool { false }
     public static var access: CameraAccess { .denied }
     public static func requestAccess() async -> Bool { false }
     public static func devices() -> [CameraDevice] { [] }
-    public var onFrame: (@Sendable (CameraFrame) -> Void)?
-    public var onInterruption: (@Sendable (String) -> Void)?
-    public private(set) var device: CameraDevice?
-    public init(device: String? = nil, width: Int = 1280, height: Int = 720, fps: Int = 15) {}
-    public func start() throws { throw CameraError.unavailable }
-    public func stop() {}
+    public static var defaultDeviceID: String? { nil }
   }
 #endif

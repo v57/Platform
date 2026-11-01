@@ -3,10 +3,24 @@ import Foundation
 #if canImport(VideoToolbox)
   @preconcurrency import VideoToolbox
 
-  /// Encodes captured frames to H.264 for live streaming: real time, no B-frames, Main profile, a keyframe every
-  /// `format.keyframeInterval` seconds. Pictures of another size are scaled (letterboxed) to the format's; frames
-  /// above the format's frame rate are skipped.
-  public final class H264Encoder: @unchecked Sendable {
+  /// Encodes captured frames to H.264 or HEVC (`format.codec`) for live streaming: real time, no B-frames, Main
+  /// profile, a keyframe every `format.keyframeInterval` seconds. Pictures of another size are scaled (letterboxed) to
+  /// the format's; frames above the format's frame rate are skipped.
+  public final class VideoEncoder: @unchecked Sendable {
+    /// Whether this device encodes `codec` (HEVC needs an A10 or later, or a Mac from 2017 on)
+    public static func supports(_ codec: VideoCodec) -> Bool {
+      codec == .h264 || hevcEncodes
+    }
+
+    private static let hevcEncodes: Bool = {
+      var session: VTCompressionSession?
+      let status = VTCompressionSessionCreate(
+        allocator: nil, width: 640, height: 360, codecType: kCMVideoCodecType_HEVC, encoderSpecification: nil,
+        imageBufferAttributes: nil, compressedDataAllocator: nil, outputCallback: nil, refcon: nil, compressionSessionOut: &session)
+      if let session { VTCompressionSessionInvalidate(session) }
+      return status == noErr
+    }()
+
     public let format: VideoFormat
     /// Called on VideoToolbox's queue, in order, for every encoded frame
     public var onFrame: (@Sendable (EncodedVideoFrame) -> Void)?
@@ -21,14 +35,15 @@ import Foundation
       self.format = format
       var session: VTCompressionSession?
       let status = VTCompressionSessionCreate(
-        allocator: nil, width: Int32(format.width), height: Int32(format.height), codecType: kCMVideoCodecType_H264,
+        allocator: nil, width: Int32(format.width), height: Int32(format.height),
+        codecType: format.codec == .hevc ? kCMVideoCodecType_HEVC : kCMVideoCodecType_H264,
         encoderSpecification: nil, imageBufferAttributes: nil, compressedDataAllocator: nil, outputCallback: nil,
         refcon: nil, compressionSessionOut: &session)
-      guard status == noErr, let session else { throw CameraError.failed("The H.264 encoder didn’t start (\(status)).") }
+      guard status == noErr, let session else { throw CameraError.failed("The \(format.codec.title) encoder didn’t start (\(status)).") }
       self.session = session
       let properties: [CFString: Any] = [
         kVTCompressionPropertyKey_RealTime: true,
-        kVTCompressionPropertyKey_ProfileLevel: kVTProfileLevel_H264_Main_AutoLevel,
+        kVTCompressionPropertyKey_ProfileLevel: format.codec == .hevc ? kVTProfileLevel_HEVC_Main_AutoLevel : kVTProfileLevel_H264_Main_AutoLevel,
         kVTCompressionPropertyKey_AllowFrameReordering: false,
         kVTCompressionPropertyKey_ExpectedFrameRate: format.fps,
         kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration: format.keyframeInterval,
@@ -100,50 +115,62 @@ import Foundation
       let isKeyframe = !(attachments?.first?[kCMSampleAttachmentKey_NotSync] as? Bool ?? false)
       var parameterSets: [Data] = []
       if isKeyframe, let description = CMSampleBufferGetFormatDescription(sampleBuffer) {
-        parameterSets = Self.parameterSets(of: description)
+        parameterSets = Self.parameterSets(of: description, codec: format.codec)
       }
       let dimensions = CMSampleBufferGetFormatDescription(sampleBuffer).map(CMVideoFormatDescriptionGetDimensions)
       return EncodedVideoFrame(
-        data: data, isKeyframe: isKeyframe, time: CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds,
+        codec: format.codec, data: data, isKeyframe: isKeyframe, time: CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds,
         duration: 1 / Double(format.fps), parameterSets: parameterSets,
         width: Int(dimensions?.width ?? Int32(format.width)), height: Int(dimensions?.height ?? Int32(format.height)))
     }
 
-    static func parameterSets(of description: CMFormatDescription) -> [Data] {
+    static func parameterSets(of description: CMFormatDescription, codec: VideoCodec) -> [Data] {
+      func get(_ index: Int, _ pointer: UnsafeMutablePointer<UnsafePointer<UInt8>?>?, _ size: UnsafeMutablePointer<Int>?, _ count: UnsafeMutablePointer<Int>?) -> OSStatus {
+        codec == .hevc
+          ? CMVideoFormatDescriptionGetHEVCParameterSetAtIndex(
+            description, parameterSetIndex: index, parameterSetPointerOut: pointer, parameterSetSizeOut: size,
+            parameterSetCountOut: count, nalUnitHeaderLengthOut: nil)
+          : CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
+            description, parameterSetIndex: index, parameterSetPointerOut: pointer, parameterSetSizeOut: size,
+            parameterSetCountOut: count, nalUnitHeaderLengthOut: nil)
+      }
       var count = 0
-      guard
-        CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
-          description, parameterSetIndex: 0, parameterSetPointerOut: nil, parameterSetSizeOut: nil,
-          parameterSetCountOut: &count, nalUnitHeaderLengthOut: nil) == noErr
-      else { return [] }
+      guard get(0, nil, nil, &count) == noErr else { return [] }
       return (0..<count).compactMap { index in
         var pointer: UnsafePointer<UInt8>?
         var size = 0
-        guard
-          CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
-            description, parameterSetIndex: index, parameterSetPointerOut: &pointer, parameterSetSizeOut: &size,
-            parameterSetCountOut: nil, nalUnitHeaderLengthOut: nil) == noErr, let pointer
-        else { return nil }
+        guard get(index, &pointer, &size, nil) == noErr, let pointer else { return nil }
         return Data(bytes: pointer, count: size)
       }
     }
   }
 
   extension EncodedVideoFrame {
-    /// The H.264 format description of these parameter sets
-    static func formatDescription(parameterSets: [Data]) -> CMVideoFormatDescription? {
-      guard parameterSets.count >= 2 else { return nil }
+    /// The format description of these parameter sets: SPS and PPS for H.264, VPS, SPS and PPS for HEVC
+    static func formatDescription(parameterSets: [Data], codec: VideoCodec) -> CMVideoFormatDescription? {
+      guard parameterSets.count >= (codec == .hevc ? 3 : 2) else { return nil }
       var description: CMVideoFormatDescription?
       let buffers = parameterSets.map { [UInt8]($0) }
-      let status = buffers[0].withUnsafeBufferPointer { sps in
-        buffers[1].withUnsafeBufferPointer { pps in
-          let pointers = [sps.baseAddress!, pps.baseAddress!]
-          let sizes = [sps.count, pps.count]
-          return CMVideoFormatDescriptionCreateFromH264ParameterSets(
-            allocator: nil, parameterSetCount: 2, parameterSetPointers: pointers, parameterSetSizes: sizes,
-            nalUnitHeaderLength: 4, formatDescriptionOut: &description)
-        }
+      let pointers = UnsafeMutablePointer<UnsafePointer<UInt8>>.allocate(capacity: buffers.count)
+      let copies = buffers.map { buffer -> UnsafeMutablePointer<UInt8> in
+        let copy = UnsafeMutablePointer<UInt8>.allocate(capacity: max(buffer.count, 1))
+        copy.initialize(from: buffer, count: buffer.count)
+        return copy
       }
+      defer {
+        copies.forEach { $0.deallocate() }
+        pointers.deallocate()
+      }
+      for (index, copy) in copies.enumerated() { pointers[index] = UnsafePointer(copy) }
+      let sizes = buffers.map(\.count)
+      let status =
+        codec == .hevc
+        ? CMVideoFormatDescriptionCreateFromHEVCParameterSets(
+          allocator: nil, parameterSetCount: buffers.count, parameterSetPointers: pointers, parameterSetSizes: sizes,
+          nalUnitHeaderLength: 4, extensions: nil, formatDescriptionOut: &description)
+        : CMVideoFormatDescriptionCreateFromH264ParameterSets(
+          allocator: nil, parameterSetCount: buffers.count, parameterSetPointers: pointers, parameterSetSizes: sizes,
+          nalUnitHeaderLength: 4, formatDescriptionOut: &description)
       return status == noErr ? description : nil
     }
 
@@ -188,8 +215,10 @@ import Foundation
     }
   }
 #else
-  /// Encodes captured frames to H.264: no encoder on this platform yet, so `init` throws `CameraError.unavailable`.
-  public final class H264Encoder: @unchecked Sendable {
+  /// Encodes captured frames to H.264 or HEVC: no encoder on this platform yet, so `init` throws
+  /// `CameraError.unavailable`.
+  public final class VideoEncoder: @unchecked Sendable {
+    public static func supports(_ codec: VideoCodec) -> Bool { false }
     public let format: VideoFormat
     public var onFrame: (@Sendable (EncodedVideoFrame) -> Void)?
     public init(format: VideoFormat) throws { throw CameraError.unavailable }

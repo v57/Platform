@@ -1,6 +1,13 @@
 import Foundation
 
-/// How to encode a video stream: picture size, frame rate and bit rate.
+/// The video codecs `VideoEncoder` writes.
+public enum VideoCodec: String, Sendable, Hashable, Codable, CaseIterable {
+  case h264, hevc
+
+  public var title: String { self == .h264 ? "H.264" : "HEVC" }
+}
+
+/// How to encode a video stream: codec, picture size, frame rate and bit rate.
 public struct VideoFormat: Sendable, Hashable, Codable {
   public var width: Int
   public var height: Int
@@ -9,13 +16,35 @@ public struct VideoFormat: Sendable, Hashable, Codable {
   public var bitrate: Int
   /// Seconds between keyframes: how long a new viewer waits at most, and the shortest recording segment
   public var keyframeInterval: Double
+  public var codec: VideoCodec
 
-  public init(width: Int, height: Int, fps: Int, bitrate: Int, keyframeInterval: Double = 1) {
+  public init(width: Int, height: Int, fps: Int, bitrate: Int, keyframeInterval: Double = 1, codec: VideoCodec = .h264) {
     self.width = width
     self.height = height
     self.fps = fps
     self.bitrate = bitrate
     self.keyframeInterval = keyframeInterval
+    self.codec = codec
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    width = try container.decode(Int.self, forKey: .width)
+    height = try container.decode(Int.self, forKey: .height)
+    fps = try container.decode(Int.self, forKey: .fps)
+    bitrate = try container.decode(Int.self, forKey: .bitrate)
+    keyframeInterval = try container.decodeIfPresent(Double.self, forKey: .keyframeInterval) ?? 1
+    codec = try container.decodeIfPresent(VideoCodec.self, forKey: .codec) ?? .h264
+  }
+
+  /// A bit rate that gives a security camera's picture (mostly still, some motion) a clean look: about 0.1 bit per
+  /// pixel at 15 fps for H.264, growing slower than the frame rate, and 40% less for HEVC
+  public static func suggestedBitrate(width: Int, height: Int, fps: Int, codec: VideoCodec) -> Int {
+    let pixels = Double(width * height)
+    let rate = pixels * 15 * 0.1 * pow(Double(max(fps, 1)) / 15, 0.6)
+    let bits = codec == .hevc ? rate * 0.6 : rate
+    // Whole 50 kbit/s steps
+    return max(150_000, Int((bits / 50_000).rounded()) * 50_000)
   }
 
   /// 1280×720 at 15 fps, 1.5 Mbit/s: a security camera's live view and recordings
@@ -24,23 +53,26 @@ public struct VideoFormat: Sendable, Hashable, Codable {
   public static let low = VideoFormat(width: 640, height: 360, fps: 15, bitrate: 400_000)
 }
 
-/// One encoded H.264 access unit (a frame).
+/// One encoded H.264 or HEVC access unit (a frame).
 public struct EncodedVideoFrame: Sendable, Hashable {
-  /// The frame's NAL units in AVCC form, each after a 4-byte big-endian length
+  public var codec: VideoCodec
+  /// The frame's NAL units in AVCC (HVCC) form, each after a 4-byte big-endian length
   public var data: Data
   /// An IDR frame: decoding can start here
   public var isKeyframe: Bool
   /// Presentation time, seconds on the capture clock
   public var time: Double
   public var duration: Double
-  /// SPS then PPS, without start codes or lengths; on every keyframe, empty on the others
+  /// SPS then PPS (HEVC: VPS, SPS, PPS), without start codes or lengths; on every keyframe, empty on the others
   public var parameterSets: [Data]
   public var width: Int
   public var height: Int
 
   public init(
-    data: Data, isKeyframe: Bool, time: Double, duration: Double, parameterSets: [Data], width: Int, height: Int
+    codec: VideoCodec = .h264, data: Data, isKeyframe: Bool, time: Double, duration: Double, parameterSets: [Data],
+    width: Int, height: Int
   ) {
+    self.codec = codec
     self.data = data
     self.isKeyframe = isKeyframe
     self.time = time
@@ -113,7 +145,7 @@ public struct MP4Fragment: Sendable, Hashable {
   }
 }
 
-/// A live H.264 stream from a `CameraFeed`, until `stop()` or until whoever iterates `frames` stops.
+/// A live H.264 (or HEVC) stream from a `CameraFeed`, until `stop()` or until whoever iterates `frames` stops.
 public final class CameraVideoStream: Sendable {
   public let format: VideoFormat
   public let frames: AsyncStream<EncodedVideoFrame>

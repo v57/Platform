@@ -16,7 +16,7 @@ import Testing
   @Test func stillPictureHasNoMotion() {
     var detector = MotionDetector(sensitivity: 1)
     for frame in 0..<50 {
-      #expect(detector.process(luma: grid(), time: Double(frame) / 5) == nil)
+      #expect(detector.process(luma: grid(), columns: 64, time: Double(frame) / 5) == nil)
     }
     #expect(!detector.isActive)
   }
@@ -25,20 +25,20 @@ import Testing
     var detector = MotionDetector(sensitivity: 0.5, cooldown: 2, framesToStart: 2)
     var time = 0.0
     for _ in 0..<10 {
-      _ = detector.process(luma: grid(), time: time)
+      _ = detector.process(luma: grid(), columns: 64, time: time)
       time += 0.2
     }
     var events = [MotionEvent]()
     // A 6×6 square (1.6% of the picture) moving across
     for step in 0..<10 {
-      if let event = detector.process(luma: grid(square: 6, x: 5 + step * 4), time: time) { events.append(event) }
+      if let event = detector.process(luma: grid(square: 6, x: 5 + step * 4), columns: 64, time: time) { events.append(event) }
       time += 0.2
     }
     #expect(events.map(\.isActive) == [true])
     #expect(detector.isActive)
     // Where it stops, it becomes background within seconds, then motion ends after the cooldown
     for _ in 0..<60 {
-      if let event = detector.process(luma: grid(square: 6, x: 45), time: time) { events.append(event) }
+      if let event = detector.process(luma: grid(square: 6, x: 45), columns: 64, time: time) { events.append(event) }
       time += 0.2
     }
     #expect(events.map(\.isActive) == [true, false])
@@ -48,9 +48,9 @@ import Testing
     // A 3×3 square: 0.4% of the picture
     func detects(_ sensitivity: Double) -> Bool {
       var detector = MotionDetector(sensitivity: sensitivity)
-      _ = detector.process(luma: grid(), time: 0)
+      _ = detector.process(luma: grid(), columns: 64, time: 0)
       var started = false
-      for step in 0..<6 where detector.process(luma: grid(square: 3, x: 5 + step * 4), time: 0.2 * Double(step + 1))?.isActive == true {
+      for step in 0..<6 where detector.process(luma: grid(square: 3, x: 5 + step * 4), columns: 64, time: 0.2 * Double(step + 1))?.isActive == true {
         started = true
       }
       return started
@@ -59,11 +59,30 @@ import Testing
     #expect(!detects(0))
   }
 
+  @Test func motionOutsideTheZoneDoesNotCount() {
+    // The zone is the left half; a square moving on the right isn't motion, on the left it is, with its box
+    func run(x: Int) -> (started: Bool, box: MotionDetector.Zone?) {
+      var detector = MotionDetector(sensitivity: 0.5, zone: MotionDetector.Zone(x: 0, y: 0, width: 0.5, height: 1))
+      _ = detector.process(luma: grid(), columns: 64, time: 0)
+      var started = false
+      var box: MotionDetector.Zone?
+      for step in 0..<6 {
+        if detector.process(luma: grid(square: 6, x: x + step, y: 12), columns: 64, time: 0.2 * Double(step + 1))?.isActive == true { started = true }
+        box = detector.box ?? box
+      }
+      return (started, box)
+    }
+    #expect(!run(x: 45).started)
+    let inside = run(x: 4)
+    #expect(inside.started)
+    #expect(inside.box.map { $0.x < 0.2 && $0.y > 0.2 && $0.y < 0.5 && $0.width < 0.3 } == true)
+  }
+
   @Test func lightsTurningOnIsNotMotion() {
     var detector = MotionDetector(sensitivity: 1)
-    _ = detector.process(luma: grid(base: 40), time: 0)
+    _ = detector.process(luma: grid(base: 40), columns: 64, time: 0)
     for frame in 1..<10 {
-      #expect(detector.process(luma: grid(base: 160), time: Double(frame) / 5) == nil)
+      #expect(detector.process(luma: grid(base: 160), columns: 64, time: Double(frame) / 5) == nil)
     }
     #expect(!detector.isActive)
   }
@@ -126,7 +145,7 @@ import Testing
 
     @Test func encodesKeyframesWithParameterSetsIntoPlayableFragmentedMP4() async throws {
       let format = VideoFormat(width: 320, height: 240, fps: 15, bitrate: 300_000, keyframeInterval: 1)
-      let encoder = try H264Encoder(format: format)
+      let encoder = try VideoEncoder(format: format)
       let writer = FragmentedMP4Writer(segmentDuration: 1)
       let frames = Collector<EncodedVideoFrame>()
       let fragments = Collector<MP4Fragment>()
@@ -164,6 +183,28 @@ import Testing
       #expect(duration > 2)
       let tracks = try await asset.loadTracks(withMediaType: .video)
       #expect(tracks.count == 1)
+    }
+  }
+
+  @Suite struct HEVCTests {
+    @Test func encodesHEVCWithThreeParameterSetsThatDescribeTheFormat() async throws {
+      try #require(VideoEncoder.supports(.hevc))
+      let format = VideoFormat(width: 320, height: 240, fps: 15, bitrate: 300_000, codec: .hevc)
+      let encoder = try VideoEncoder(format: format)
+      let frames = Collector<EncodedVideoFrame>()
+      encoder.onFrame = { frames.append($0) }
+      for index in 0..<20 {
+        encoder.encode(EncodingTests().frame(index))
+        try await Task.sleep(for: .milliseconds(5))
+      }
+      encoder.invalidate()
+      try await Task.sleep(for: .milliseconds(300))
+      let first = try #require(frames.items.first)
+      #expect(first.codec == .hevc && first.isKeyframe)
+      #expect(first.parameterSets.count == 3)
+      let description = try #require(EncodedVideoFrame.formatDescription(parameterSets: first.parameterSets, codec: .hevc))
+      #expect(CMFormatDescriptionGetMediaSubType(description) == kCMVideoCodecType_HEVC)
+      #expect(first.sampleBuffer(description: description) != nil)
     }
   }
 

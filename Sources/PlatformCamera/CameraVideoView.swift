@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Shows a live H.264 stream frame by frame as it arrives, without buffering: `enqueue` the frames, put a
+/// Shows a live H.264 or HEVC stream frame by frame as it arrives, without buffering: `enqueue` the frames, put a
 /// `CameraVideoView` on screen. AVSampleBufferDisplayLayer on Apple platforms; nothing on Linux yet.
 public final class CameraVideoRenderer: @unchecked Sendable {
   #if canImport(AVFoundation)
@@ -22,7 +22,7 @@ public final class CameraVideoRenderer: @unchecked Sendable {
     public func enqueue(_ frame: EncodedVideoFrame) {
       let sample: CMSampleBuffer? = lock.withLock {
         if frame.isKeyframe, frame.parameterSets != parameterSets {
-          description = EncodedVideoFrame.formatDescription(parameterSets: frame.parameterSets)
+          description = EncodedVideoFrame.formatDescription(parameterSets: frame.parameterSets, codec: frame.codec)
           parameterSets = frame.parameterSets
         }
         if frame.isKeyframe { waitsForKeyframe = false }
@@ -79,16 +79,30 @@ public struct CameraVideoView: View {
       func makeNSView(context: Context) -> Host { Host(layer: layer) }
       func updateNSView(_ view: Host, context: Context) {}
 
+      /// Layer-backed with the display layer as a sublayer, not layer-hosting, so SwiftUI drawn over it (labels, a
+      /// motion box) shows
       final class Host: NSView {
-        init(layer displayLayer: AVSampleBufferDisplayLayer) {
+        let displayLayer: AVSampleBufferDisplayLayer
+
+        init(layer: AVSampleBufferDisplayLayer) {
+          displayLayer = layer
           super.init(frame: .zero)
           wantsLayer = true
-          displayLayer.videoGravity = .resizeAspect
-          displayLayer.backgroundColor = NSColor.black.cgColor
-          layer = displayLayer
+          self.layer?.backgroundColor = NSColor.black.cgColor
+          layer.videoGravity = .resizeAspect
+          layer.backgroundColor = NSColor.black.cgColor
+          self.layer?.addSublayer(layer)
         }
 
         required init?(coder: NSCoder) { nil }
+
+        override func layout() {
+          super.layout()
+          CATransaction.begin()
+          CATransaction.setDisableActions(true)
+          displayLayer.frame = bounds
+          CATransaction.commit()
+        }
       }
     }
   #elseif canImport(UIKit)
