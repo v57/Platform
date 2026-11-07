@@ -118,6 +118,14 @@ products += [.library(name: "PlatformScan", targets: ["PlatformScan"])]
 targets += [.target(name: "PlatformNotifications", swiftSettings: library)]
 products += [.library(name: "PlatformNotifications", targets: ["PlatformNotifications"])]
 
+// Languages: translations downloaded on request from v57/Localizations, every line checked, and answered in front of
+// the app's own strings (an NSBundle subclass on Apple platforms, v57/SwiftUI's text lookup elsewhere).
+targets += [
+  .target(name: "PlatformLanguages", swiftSettings: library),
+  .testTarget(name: "PlatformLanguagesTests", dependencies: ["PlatformLanguages"], swiftSettings: library),
+]
+products += [.library(name: "PlatformLanguages", targets: ["PlatformLanguages"])]
+
 let package = Package(
   name: "Platform",
   platforms: [.macOS(.v14), .iOS(.v17)],
@@ -126,12 +134,12 @@ let package = Package(
 )
 
 #if os(Linux) || os(Windows)
-// Off Apple platforms SwiftUI (PlatformMedia's video view) is v57/SwiftUI: GitHub's main branch, or the checkout next
+// Off Apple platforms SwiftUI (PlatformMedia's video view, PlatformLanguages' text lookup) is v57/SwiftUI: GitHub's main branch, or the checkout next
 // to this one with `V57_LOCAL=1`.
 package.dependencies.append(
   Context.environment["V57_LOCAL"] == nil
     ? .package(url: "https://github.com/v57/SwiftUI.git", branch: "main") : .package(path: "../SwiftUI"))
-for target in package.targets where ["PlatformMedia", "PlatformWeb", "PlatformCamera", "PlatformScan"].contains(target.name) {
+for target in package.targets where ["PlatformMedia", "PlatformWeb", "PlatformCamera", "PlatformScan", "PlatformLanguages"].contains(target.name) {
   target.dependencies.append(.product(name: "SwiftUI", package: "SwiftUI"))
 }
 #endif
