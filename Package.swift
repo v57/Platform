@@ -113,6 +113,11 @@ targets += [
 ]
 products += [.library(name: "PlatformScan", targets: ["PlatformScan"])]
 
+// Notifications: ones the device shows by itself, with no push service (UserNotifications on Apple platforms; none on
+// Linux yet, which says so), and the one the user opened.
+targets += [.target(name: "PlatformNotifications", swiftSettings: library)]
+products += [.library(name: "PlatformNotifications", targets: ["PlatformNotifications"])]
+
 let package = Package(
   name: "Platform",
   platforms: [.macOS(.v14), .iOS(.v17)],
