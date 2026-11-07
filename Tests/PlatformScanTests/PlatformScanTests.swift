@@ -3,6 +3,40 @@ import Testing
 
 @testable import PlatformScan
 
+/// What every platform does: lines put in reading order and pieces of one printed line joined, and on platforms with
+/// no reader yet, each call saying so.
+struct ScanLogicTests {
+  @Test func readingOrderKeepsARowLeftToRight() {
+    let right = PageTextLine(text: "B", box: PageRect(x: 0.6, y: 0.1, width: 0.2, height: 0.05), confidence: 1)
+    let left = PageTextLine(text: "A", box: PageRect(x: 0.1, y: 0.11, width: 0.2, height: 0.05), confidence: 1)
+    let below = PageTextLine(text: "C", box: PageRect(x: 0.1, y: 0.3, width: 0.2, height: 0.05), confidence: 1)
+    #expect(PageScanner.sortedInReadingOrder([below, right, left]).map(\.text) == ["A", "B", "C"])
+  }
+
+  @Test func piecesOfOneLineAreJoinedButColumnsStayApart() {
+    let a = PageTextLine(text: "TR1029384<", box: PageRect(x: 0.1, y: 0.8, width: 0.4, height: 0.04), confidence: 0.9)
+    let b = PageTextLine(text: "<<<<<<<", box: PageRect(x: 0.505, y: 0.801, width: 0.2, height: 0.04), confidence: 0.6)
+    let c = PageTextLine(text: "<<<<<04", box: PageRect(x: 0.71, y: 0.8, width: 0.2, height: 0.04), confidence: 1)
+    let label = PageTextLine(text: "Holder", box: PageRect(x: 0.1, y: 0.2, width: 0.1, height: 0.04), confidence: 1)
+    let value = PageTextLine(text: "Aiko", box: PageRect(x: 0.6, y: 0.2, width: 0.1, height: 0.04), confidence: 1)
+    let joined = PageScanner.joinedRows(PageScanner.sortedInReadingOrder([c, a, value, b, label]))
+    #expect(joined.map(\.text) == ["Holder", "Aiko", "TR1029384<<<<<<<<<<<<<04"])
+    #expect(joined[2].confidence == 0.6)
+    #expect(abs(joined[2].box.width - 0.81) < 0.001)
+  }
+
+  #if !canImport(Vision)
+    @Test func withoutAReaderEachCallSaysSo() async throws {
+      #expect(!PageScanner.isAvailable && !PDFPages.isAvailable)
+      await #expect(throws: ScanError.self) { try await PageScanner.lines(in: Data([1, 2, 3])) }
+      #expect(throws: ScanError.self) { try PageScanner.straighten(Data([1, 2, 3])) }
+      #expect(PageScanner.thumbnail(of: Data([1, 2, 3])) == nil)
+      #expect(PDFPages.isPDF(Data("%PDF-1.7".utf8)))
+      #expect(PDFPages.pageCount(Data("%PDF-1.7".utf8)) == nil)
+    }
+  #endif
+}
+
 #if canImport(CoreText) && canImport(ImageIO) && canImport(Vision)
   import CoreGraphics
   import CoreText
@@ -81,25 +115,6 @@ import Testing
       #expect(thumbnail.width == 400 && thumbnail.height == 300)
       #expect(PageScanner.thumbnail(of: Data("not an image".utf8), maxPixel: 400) == nil)
       #expect(throws: ScanError.self) { try PageScanner.straighten(Data([1, 2, 3])) }
-    }
-
-    @Test func readingOrderKeepsARowLeftToRight() {
-      let right = PageTextLine(text: "B", box: PageRect(x: 0.6, y: 0.1, width: 0.2, height: 0.05), confidence: 1)
-      let left = PageTextLine(text: "A", box: PageRect(x: 0.1, y: 0.11, width: 0.2, height: 0.05), confidence: 1)
-      let below = PageTextLine(text: "C", box: PageRect(x: 0.1, y: 0.3, width: 0.2, height: 0.05), confidence: 1)
-      #expect(PageScanner.sortedInReadingOrder([below, right, left]).map(\.text) == ["A", "B", "C"])
-    }
-
-    @Test func piecesOfOneLineAreJoinedButColumnsStayApart() {
-      let a = PageTextLine(text: "TR1029384<", box: PageRect(x: 0.1, y: 0.8, width: 0.4, height: 0.04), confidence: 0.9)
-      let b = PageTextLine(text: "<<<<<<<", box: PageRect(x: 0.505, y: 0.801, width: 0.2, height: 0.04), confidence: 0.6)
-      let c = PageTextLine(text: "<<<<<04", box: PageRect(x: 0.71, y: 0.8, width: 0.2, height: 0.04), confidence: 1)
-      let label = PageTextLine(text: "Holder", box: PageRect(x: 0.1, y: 0.2, width: 0.1, height: 0.04), confidence: 1)
-      let value = PageTextLine(text: "Aiko", box: PageRect(x: 0.6, y: 0.2, width: 0.1, height: 0.04), confidence: 1)
-      let joined = PageScanner.joinedRows(PageScanner.sortedInReadingOrder([c, a, value, b, label]))
-      #expect(joined.map(\.text) == ["Holder", "Aiko", "TR1029384<<<<<<<<<<<<<04"])
-      #expect(joined[2].confidence == 0.6)
-      #expect(abs(joined[2].box.width - 0.81) < 0.001)
     }
   }
 
