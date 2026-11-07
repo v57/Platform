@@ -104,6 +104,15 @@ targets += [
 ]
 products += [.library(name: "PlatformCamera", targets: ["PlatformCamera"])]
 
+// Scanning: pages read on the device (text, a page's corners, the page straightened and cleaned up) on Vision and Core
+// Image, an imported PDF's pages and text on PDFKit, a copy to give out with parts blacked out and a watermark burned in,
+// and the document camera (VisionKit, iPhone and iPad); none of it on Linux yet (each says so).
+targets += [
+  .target(name: "PlatformScan", swiftSettings: library),
+  .testTarget(name: "PlatformScanTests", dependencies: ["PlatformScan"], swiftSettings: library),
+]
+products += [.library(name: "PlatformScan", targets: ["PlatformScan"])]
+
 let package = Package(
   name: "Platform",
   platforms: [.macOS(.v14), .iOS(.v17)],
@@ -117,7 +126,7 @@ let package = Package(
 package.dependencies.append(
   Context.environment["V57_LOCAL"] == nil
     ? .package(url: "https://github.com/v57/SwiftUI.git", branch: "main") : .package(path: "../SwiftUI"))
-for target in package.targets where ["PlatformMedia", "PlatformWeb", "PlatformCamera"].contains(target.name) {
+for target in package.targets where ["PlatformMedia", "PlatformWeb", "PlatformCamera", "PlatformScan"].contains(target.name) {
   target.dependencies.append(.product(name: "SwiftUI", package: "SwiftUI"))
 }
 #endif
