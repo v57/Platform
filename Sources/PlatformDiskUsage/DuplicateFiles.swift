@@ -61,7 +61,7 @@ public nonisolated enum DuplicateFiles {
   /// those; checks for task cancellation between files.
   public static func find(in roots: [String]) -> Found {
     guard isSupported else { return Found() }
-    let owner = UInt32(getuid())
+    let owner = FileAccess.userID
     var bySize: [Int64: [File]] = [:]
     DiskUsage.walk(roots) { entry in
       guard !entry.isDirectory else { return .descend }

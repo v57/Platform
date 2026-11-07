@@ -5,6 +5,8 @@ import Foundation
 #elseif os(Linux)
   import CFTS
   import Glibc
+#elseif os(Windows)
+  import WinSDK
 #endif
 
 /// File-tree walks over `fts(3)`: the same traversal `du` uses — allocated blocks rather than logical length (sparse
@@ -14,7 +16,8 @@ import Foundation
 /// adds up to more than the disk holds.
 ///
 /// The Mac reads APFS's clone bookkeeping (`getattrlist`) and never downloads cloud-only (dataless) files; Linux walks
-/// with glibc's fts and counts hard links once, with no clone bookkeeping.
+/// with glibc's fts and counts hard links once, with no clone bookkeeping. Windows walks with `FindFirstFileExW`
+/// (DiskUsageWindows.swift) and counts hard links once by volume serial and file index; it keeps no clones either.
 ///
 /// ```swift
 /// let measured = DiskUsage.measure([cachesFolder], ledger: ledger)
@@ -106,6 +109,7 @@ public nonisolated enum DiskUsage {
     withoutDownloading { directorySizesWalk(of: root, maxDepth: maxDepth, minBytes: minBytes, progress: progress) }
   }
 
+  #if !os(Windows)
   private static func directorySizesWalk(
     of root: String, maxDepth: Int, minBytes: Int64, progress: ((Int64) -> Void)?
   ) -> (sizes: [String: Int64], denied: [String]) {
@@ -172,6 +176,7 @@ public nonisolated enum DiskUsage {
     }
     return (sizes, denied)
   }
+  #endif
 
   /// What a visitor decides for a directory. Ignored for files.
   public enum Decision: Sendable {
@@ -179,6 +184,7 @@ public nonisolated enum DiskUsage {
     case skip
   }
 
+  #if !os(Windows)
   /// One visited file-system entry, read straight off the `FTSENT`. Valid only during the visit.
   public struct Entry {
     let pointer: UnsafeMutablePointer<FTSENT>
@@ -263,6 +269,7 @@ public nonisolated enum DiskUsage {
     /// blocks, how many are its own, and the id its pure clones share.
     public var cloneInfo: CloneInfo? { DiskUsage.cloneInfo(atPath: pointer.pointee.fts_path) }
   }
+  #endif
 
   /// A file time (`timespec`) without the C type, so it can be kept and compared.
   public struct FileTime: Hashable, Sendable {
@@ -274,11 +281,13 @@ public nonisolated enum DiskUsage {
       self.nanoseconds = nanoseconds
     }
 
+    #if !os(Windows)
     init(_ time: timespec) {
       self.init(seconds: Int(time.tv_sec), nanoseconds: Int(time.tv_nsec))
     }
 
     var timespec: timespec { .init(tv_sec: .init(seconds), tv_nsec: .init(nanoseconds)) }
+    #endif
   }
 
   /// APFS's clone bookkeeping for the file at `path` (not following a symlink), or nil where the volume does not keep
@@ -351,6 +360,7 @@ public nonisolated enum DiskUsage {
     withoutDownloading { walkTree(roots, visit: visit) }
   }
 
+  #if !os(Windows)
   private static func walkTree(_ roots: [String], visit: (Entry) -> Decision) {
     let existing = roots.filter { FileManager.default.fileExists(atPath: $0) }
     guard !existing.isEmpty else { return }
@@ -382,6 +392,7 @@ public nonisolated enum DiskUsage {
       }
     }
   }
+  #endif
 
   public struct FileKey: Hashable, Sendable {
     let device: UInt64

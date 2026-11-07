@@ -4,11 +4,43 @@ import Foundation
   import Darwin
 #elseif os(Linux)
   import Glibc
+#elseif os(Windows)
+  import WinSDK
 #endif
 
 /// Who owns files and who may move them, read from ownership and mode bits (not `access(2)`, which on the Mac also
 /// says no for an app bundle App Management guards: that refusal shows when the move fails), plus the volume's room.
+///
+/// Windows has no numeric user or group ids: every file counts as this user's (ids are 0), and a file may be moved
+/// wherever its folder is there (access lists are not read: a refusal shows when the move fails).
 public nonisolated enum FileAccess {
+  #if os(Windows)
+  public static var userID: UInt32 { 0 }
+
+  public static var groupID: UInt32 { 0 }
+
+  public static func owner(ofPath path: String) -> UInt32? {
+    fileAttributes(atPath: path) == nil ? nil : userID
+  }
+
+  public static func isMovable(_ path: String) -> Bool {
+    guard fileAttributes(atPath: path) != nil else { return true }
+    return fileAttributes(atPath: (path as NSString).deletingLastPathComponent) != nil
+  }
+
+  public static func volumeCapacity(at path: String) -> (total: Int64, available: Int64) {
+    var available = ULARGE_INTEGER()
+    var total = ULARGE_INTEGER()
+    // A file's path is not a volume's: its folder is.
+    for candidate in [path, (path as NSString).deletingLastPathComponent] {
+      let read = win32Path(candidate).withCString(encodedAs: UTF16.self) {
+        GetDiskFreeSpaceExW($0, &available, &total, nil)
+      }
+      if read { return (Int64(total.QuadPart), Int64(available.QuadPart)) }
+    }
+    return (0, 0)
+  }
+  #else
   /// This process's user id.
   public static var userID: UInt32 { UInt32(getuid()) }
 
@@ -60,4 +92,5 @@ public nonisolated enum FileAccess {
       return (Int64(info.f_blocks) * block, Int64(info.f_bavail) * block)
     #endif
   }
+  #endif
 }

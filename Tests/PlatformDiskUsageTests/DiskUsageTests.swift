@@ -2,6 +2,10 @@ import Foundation
 import PlatformDiskUsage
 import Testing
 
+#if os(Windows)
+  import WinSDK
+#endif
+
 @Suite struct DiskUsageTests {
   @Test func countsAHardLinkOnce() throws {
     let folder = FileManager.default.temporaryDirectory.appendingPathComponent("disk-usage-\(UUID().uuidString)")
@@ -9,7 +13,7 @@ import Testing
     defer { try? FileManager.default.removeItem(at: folder) }
     let file = folder.appendingPathComponent("a.bin")
     try Data(repeating: 7, count: 256 * 1024).write(to: file)
-    try FileManager.default.linkItem(at: file, to: folder.appendingPathComponent("b.bin"))
+    try hardLink(file, to: folder.appendingPathComponent("b.bin"))
 
     let ledger = SharedBlockLedger()
     let measured = DiskUsage.measure([folder.path], ledger: ledger)
@@ -28,4 +32,17 @@ import Testing
     let sizes = DiskUsage.directorySizes(of: folder.path, maxDepth: 64, minBytes: 0)
     #expect(sizes.sizes[folder.path] == measured.bytes)
   }
+}
+
+/// A second name for `file`. Foundation's `linkItem` on Windows doesn't make a hard link (the new name is an empty file
+/// of its own), so there it's `CreateHardLinkW`.
+private func hardLink(_ file: URL, to link: URL) throws {
+  #if os(Windows)
+    let made = link.path.withCString(encodedAs: UTF16.self) { linkPath in
+      file.path.withCString(encodedAs: UTF16.self) { CreateHardLinkW(linkPath, $0, nil) }
+    }
+    if !made { throw CocoaError(.fileWriteUnknown) }
+  #else
+    try FileManager.default.linkItem(at: file, to: link)
+  #endif
 }
