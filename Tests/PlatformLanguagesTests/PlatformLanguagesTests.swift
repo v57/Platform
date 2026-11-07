@@ -184,6 +184,10 @@ import Testing
       #expect(NSLocalizedString("Pack Hello %@", comment: "") == "Hallo %@")
       #expect(String(AttributedString(localized: "Pack Hello \(name)").characters) == "Hallo Ana")
       #expect(String(localized: "Pack Missing") == "Pack Missing")
+      // SwiftUI's Text asks for an attributed string, which parses Markdown.
+      let attributed = Bundle.main.perform(
+        NSSelectorFromString("localizedAttributedStringForKey:value:table:"), with: "Pack Missing", with: nil)
+      #expect((attributed?.takeUnretainedValue() as? NSAttributedString)?.string == "Pack Missing")
       PackHook.use([])
       #expect(String(localized: "Pack Hello \(name)") == "Pack Hello Ana")
     }

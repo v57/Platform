@@ -163,8 +163,14 @@ public final class LanguagePacks {
 
   /// The languages a release can download, with their size (Info.plist's `V57Languages`).
   static var downloadable: [String: Int] {
-    guard let table = Bundle.main.object(forInfoDictionaryKey: "V57Languages") as? [String: Any] else { return [:] }
-    return table.compactMapValues { ($0 as? NSNumber)?.intValue ?? ($0 as? Int) }
+    var info = Bundle.main.object(forInfoDictionaryKey: "V57Languages") as? [String: Any]
+    #if DEBUG
+      // A debug build lists none: `-V57Languages '{de = 1200;}'` stands in for a release's list.
+      info = info ?? UserDefaults.standard.dictionary(forKey: "V57Languages")
+    #endif
+    guard let table = info else { return [:] }
+    // A launch argument's numbers come as strings.
+    return table.compactMapValues { ($0 as? NSNumber)?.intValue ?? ($0 as? String).flatMap { Int($0) } }
   }
 
   /// The language the system picked for the app, among `candidates`.

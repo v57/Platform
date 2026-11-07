@@ -47,7 +47,9 @@ enum PackHook {
 
   /// What the main bundle becomes; its lookups are added at run time (`addLookups`).
   final class PackBundle: Bundle, @unchecked Sendable {
-    nonisolated(unsafe) static let missing = "\u{0}missing" as NSString
+    /// What a pack answers for a key it hasn't: plain letters, since the attributed lookups parse Markdown (a NUL
+    /// comes back as U+FFFD).
+    nonisolated(unsafe) static let missing = "V57LanguagePackHasNoSuchLine" as NSString
 
     static func found(_ result: AnyObject?) -> Bool {
       if let string = result as? NSString { return string != missing }
