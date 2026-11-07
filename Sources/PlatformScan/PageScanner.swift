@@ -30,7 +30,7 @@ public nonisolated enum PageScanner {
   /// come through as printed.
   public static func lines(in image: Data) async throws -> [PageTextLine] {
     #if canImport(Vision) && canImport(CoreImage)
-      try await Task.detached(priority: .userInitiated) {
+      try await offPool {
         let cgImage = try decode(image)
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
@@ -45,8 +45,8 @@ public nonisolated enum PageScanner {
             box: PageRect(x: box.minX, y: 1 - box.maxY, width: box.width, height: box.height),
             confidence: Double(best.confidence))
         }
-        return sortedInReadingOrder(lines)
-      }.value
+        return joinedRows(sortedInReadingOrder(lines))
+      }
     #else
       throw ScanError.unsupported
     #endif
@@ -66,10 +66,32 @@ public nonisolated enum PageScanner {
     }
   }
 
+  /// Pieces of one printed line read as several (a machine-readable zone's long `<<<` runs): pieces on one row with
+  /// less than half a line's height between them become one line. Columns further apart stay apart.
+  static func joinedRows(_ lines: [PageTextLine]) -> [PageTextLine] {
+    var result: [PageTextLine] = []
+    for line in lines {
+      if let previous = result.last {
+        let height = min(previous.box.height, line.box.height)
+        let sameRow = abs((previous.box.y + previous.box.height / 2) - (line.box.y + line.box.height / 2)) < height / 2
+        let gap = line.box.x - (previous.box.x + previous.box.width)
+        if sameRow, gap > -height, gap < height / 2 {
+          let union = previous.box.union(line.box)
+          result[result.count - 1] = PageTextLine(
+            text: previous.text + (gap > height / 4 ? " " : "") + line.text, box: union,
+            confidence: min(previous.confidence, line.confidence))
+          continue
+        }
+      }
+      result.append(line)
+    }
+    return result
+  }
+
   /// Where the page's corners are in a photo, nil when no page stands out.
   public static func edges(in image: Data) async throws -> PageQuad? {
     #if canImport(Vision) && canImport(CoreImage)
-      try await Task.detached(priority: .userInitiated) {
+      try await offPool {
         let cgImage = try decode(image)
         let handler = VNImageRequestHandler(cgImage: cgImage)
         let segmentation = VNDetectDocumentSegmentationRequest()
@@ -81,7 +103,7 @@ public nonisolated enum PageScanner {
         rectangles.maximumObservations = 1
         try handler.perform([rectangles])
         return rectangles.results?.first.map(quad)
-      }.value
+      }
     #else
       throw ScanError.unsupported
     #endif
@@ -165,6 +187,21 @@ public nonisolated enum PageScanner {
   }
 
   #if canImport(Vision) && canImport(CoreImage)
+    /// A picture the app drew (a rendered view) as a JPEG page.
+    public static func page(from image: CGImage, quality: Double = 0.85) -> PageImage? {
+      jpeg(image, quality: quality)
+    }
+
+    /// Vision's requests block their thread, the first text request in an app for many seconds (the Neural Engine
+    /// compiles its model), so they run on a Dispatch queue rather than holding a thread of Swift's cooperative pool.
+    static func offPool<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
+      try await withCheckedThrowingContinuation { continuation in
+        visionQueue.async { continuation.resume(with: Result { try work() }) }
+      }
+    }
+
+    private static let visionQueue = DispatchQueue(label: "PlatformScan.vision", qos: .userInitiated, attributes: .concurrent)
+
     static let context = CIContext(options: [.cacheIntermediates: false])
 
     static func decode(_ data: Data) throws -> CGImage {

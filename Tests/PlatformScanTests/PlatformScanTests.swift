@@ -89,6 +89,18 @@ import Testing
       let below = PageTextLine(text: "C", box: PageRect(x: 0.1, y: 0.3, width: 0.2, height: 0.05), confidence: 1)
       #expect(PageScanner.sortedInReadingOrder([below, right, left]).map(\.text) == ["A", "B", "C"])
     }
+
+    @Test func piecesOfOneLineAreJoinedButColumnsStayApart() {
+      let a = PageTextLine(text: "TR1029384<", box: PageRect(x: 0.1, y: 0.8, width: 0.4, height: 0.04), confidence: 0.9)
+      let b = PageTextLine(text: "<<<<<<<", box: PageRect(x: 0.505, y: 0.801, width: 0.2, height: 0.04), confidence: 0.6)
+      let c = PageTextLine(text: "<<<<<04", box: PageRect(x: 0.71, y: 0.8, width: 0.2, height: 0.04), confidence: 1)
+      let label = PageTextLine(text: "Holder", box: PageRect(x: 0.1, y: 0.2, width: 0.1, height: 0.04), confidence: 1)
+      let value = PageTextLine(text: "Aiko", box: PageRect(x: 0.6, y: 0.2, width: 0.1, height: 0.04), confidence: 1)
+      let joined = PageScanner.joinedRows(PageScanner.sortedInReadingOrder([c, a, value, b, label]))
+      #expect(joined.map(\.text) == ["Holder", "Aiko", "TR1029384<<<<<<<<<<<<<04"])
+      #expect(joined[2].confidence == 0.6)
+      #expect(abs(joined[2].box.width - 0.81) < 0.001)
+    }
   }
 
   struct PageCopyTests {
