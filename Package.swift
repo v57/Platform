@@ -3,8 +3,8 @@ import PackageDescription
 
 // Apple frameworks the apps need, reimplemented behind one API per feature: each library uses the Apple framework on
 // Apple platforms and the platform's own on Linux, Windows and Android, so apps import these instead of the framework
-// (the v57 rule: apps import only SwiftUI and our kits). One library per feature, `Platform<Feature>`; `PlatformKit`
-// re-exports them all.
+// (the v57 rule: apps import only SwiftUI and our kits). One library per feature, `Platform<Feature>`, imported on its
+// own; `PlatformKit` only says which platform a build runs on and re-exports none of them.
 
 let library: [SwiftSetting] = [.swiftLanguageMode(.v6)]
 
