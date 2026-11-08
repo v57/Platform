@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Testing
 
@@ -63,7 +64,9 @@ import Testing
       try text.write(to: folder.appendingPathComponent(name), atomically: true, encoding: .utf8)
     }
 
-    func manifest(hash: String = "1") throws {
+    /// manifest.json for the files in the folder, with their real sizes and SHA-256; `extra` adds entries as they are
+    /// (source → language → name → file).
+    func manifest(extra: [String: [String: [String: [String: Any]]]] = [:]) throws {
       var sources: [String: [String: [String: [String: Any]]]] = [:]
       for source in try FileManager.default.contentsOfDirectory(atPath: root.path) where !source.hasSuffix(".json") {
         for lproj in try FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent(source).path) {
@@ -71,9 +74,15 @@ import Testing
           for name in try FileManager.default.contentsOfDirectory(
             atPath: root.appendingPathComponent("\(source)/\(lproj)").path)
           {
-            let size = try Data(contentsOf: root.appendingPathComponent("\(source)/\(lproj)/\(name)")).count
-            sources[source, default: [:]][language, default: [:]][name] = ["bytes": size, "sha256": "\(name)-\(hash)"]
+            let data = try Data(contentsOf: root.appendingPathComponent("\(source)/\(lproj)/\(name)"))
+            let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+            sources[source, default: [:]][language, default: [:]][name] = ["bytes": data.count, "sha256": hash]
           }
+        }
+      }
+      for (source, languages) in extra {
+        for (language, files) in languages {
+          for (name, file) in files { sources[source, default: [:]][language, default: [:]][name] = file }
         }
       }
       let data = try JSONSerialization.data(withJSONObject: ["version": 1, "sources": sources])
@@ -83,9 +92,10 @@ import Testing
     deinit { try? FileManager.default.removeItem(at: root) }
   }
 
-  func packs(_ repository: Repository) -> (LanguagePacks, PackStore) {
+  func packs(_ repository: Repository, manifestSHA256: String? = nil) -> (LanguagePacks, PackStore) {
     let store = PackStore(root: repository.root.appendingPathExtension("store"))
-    let packs = LanguagePacks(store: store, remote: PackRemote(base: repository.root), hooks: false)
+    let remote = PackRemote(base: repository.root, manifestSHA256: manifestSHA256)
+    let packs = LanguagePacks(store: store, remote: remote, hooks: false)
     packs.start(sources: ["App", "Kit"])
     return (packs, store)
   }
@@ -129,7 +139,8 @@ import Testing
 
     // Newer files on the server make an update; downloading again takes them, in a new folder.
     let before = try #require(store.state(of: "de")).folder
-    try repository.manifest(hash: "2")
+    try repository.write("Kit", "de", "Localizable.strings", "\"Open\" = \"Kit-Öffnen\";\n\"Cancel\" = \"Abbruch\";\n")
+    try repository.manifest()
     #expect(try await packs.checkForUpdates())
     try await packs.download("de")
     #expect(try #require(store.state(of: "de")).folder != before)
@@ -137,7 +148,10 @@ import Testing
 
     packs.remove("de")
     #expect(store.downloaded().isEmpty)
-    #expect(packs.languages.first { $0.code == "de" }?.state == .available(bytes: bytes))
+    let updated = try ["App", "Kit"].reduce(0) {
+      $0 + (try Data(contentsOf: repository.root.appendingPathComponent("\($1)/de.lproj/Localizable.strings")).count)
+    }
+    #expect(packs.languages.first { $0.code == "de" }?.state == .available(bytes: updated))
   }
 
   @Test func aLanguageNobodyTranslatedSaysSo() async throws {
@@ -148,6 +162,106 @@ import Testing
     defer { try? FileManager.default.removeItem(at: store.root) }
     await #expect(throws: LanguagePackError.noTranslations("ja")) { try await packs.download("ja") }
     #expect(store.downloaded().isEmpty)
+  }
+
+  /// Language codes and file names become paths: the manifest can't name one outside the language's folder
+  /// (Ideas/Security/supply-chain.md M5).
+  @Test func aManifestCantNamePaths() async throws {
+    let repository = Repository()
+    try repository.write("App", "de", "Localizable.strings", "\"Open\" = \"Öffnen\";\n")
+    let plist = "\"Open\" = \"Pwned\";\n"
+    try repository.write("App", "de", "x.strings", plist)
+    let hash = SHA256.hash(data: Data(plist.utf8)).map { String(format: "%02x", $0) }.joined()
+    let file: [String: Any] = ["bytes": plist.utf8.count, "sha256": hash]
+    try repository.manifest(extra: [
+      "App": [
+        "de": ["../../../../escaped.strings": file, "Info.plist": file],
+        "../../../../evil": ["Localizable.strings": file],
+      ]
+    ])
+    let (packs, store) = packs(repository)
+    defer { try? FileManager.default.removeItem(at: store.root) }
+    try await packs.checkForUpdates()
+    #expect(packs.languages.map(\.code).allSatisfy { !$0.contains("/") && !$0.contains(".") })
+    await #expect(throws: LanguagePackError.noTranslations("../../../../evil")) {
+      try await packs.download("../../../../evil")
+    }
+    try await packs.download("de")
+    let state = try #require(store.state(of: "de"))
+    #expect(state.hashes.keys.sorted() == ["App/Localizable.strings", "App/x.strings"])
+    // Nothing landed beside the store, or anywhere but de's folder.
+    let written = try FileManager.default.subpathsOfDirectory(atPath: store.root.path)
+    #expect(written.allSatisfy { $0 == "de" || $0.hasPrefix("de/") })
+    #expect(!FileManager.default.fileExists(atPath: store.root.deletingLastPathComponent().appendingPathComponent("escaped.strings").path))
+  }
+
+  /// A file that isn't the one the manifest describes is refused, and nothing is installed.
+  @Test func aFileThatIsntTheManifestsIsRefused() async throws {
+    let repository = Repository()
+    try repository.write("App", "de", "Localizable.strings", "\"Open\" = \"Öffnen\";\n")
+    try repository.manifest()
+    try repository.write("App", "de", "Localizable.strings", "\"Open\" = \"Phishing\";\n")
+    let (packs, store) = packs(repository)
+    defer { try? FileManager.default.removeItem(at: store.root) }
+    await #expect(throws: LanguagePackError.badFile("App/de.lproj/Localizable.strings")) { try await packs.download("de") }
+    #expect(store.downloaded().isEmpty)
+  }
+
+  /// A release names the manifest it was built with; another one at its commit is refused.
+  @Test func aPinnedManifestMustMatch() async throws {
+    let repository = Repository()
+    try repository.write("App", "de", "Localizable.strings", "\"Open\" = \"Öffnen\";\n")
+    try repository.manifest()
+    let manifest = try Data(contentsOf: repository.root.appendingPathComponent("manifest.json"))
+    let pinned = SHA256.hash(data: manifest).map { String(format: "%02x", $0) }.joined()
+    let (good, goodStore) = packs(repository, manifestSHA256: pinned)
+    defer { try? FileManager.default.removeItem(at: goodStore.root) }
+    try await good.download("de")
+    let (bad, _) = packs(repository, manifestSHA256: String(repeating: "0", count: 64))
+    await #expect(throws: LanguagePackError.badManifest) { try await bad.checkForUpdates() }
+  }
+
+  /// Release builds download from the commit Info.plist names, or not at all; only Debug builds take main or
+  /// V57_LOCALIZATIONS_URL.
+  @Test func whereDownloadsComeFrom() throws {
+    let commit = "1b125e0b765562e29b33b9e770fb68be5139258b"
+    let info: [String: Any] = ["V57LocalizationsCommit": commit, "V57LocalizationsManifest": "ABC"]
+    let override = ["V57_LOCALIZATIONS_URL": "http://127.0.0.1:9/"]
+    let release = try #require(PackRemote.configured(info: info, environment: override, debug: false))
+    #expect(release.base.absoluteString == "https://raw.githubusercontent.com/v57/Localizations/\(commit)/")
+    #expect(release.manifestSHA256 == "abc")
+    #expect(PackRemote.configured(info: [:], environment: [:], debug: false) == nil)
+    #expect(PackRemote.configured(info: [:], environment: override, debug: false) == nil)
+    #expect(PackRemote.configured(info: ["V57LocalizationsCommit": "main"], environment: [:], debug: false) == nil)
+    #expect(PackRemote.configured(info: ["V57LocalizationsCommit": "main"], environment: [:], debug: true) == nil)
+    #expect(PackRemote.configured(info: [:], environment: override, debug: true)?.base.absoluteString == "http://127.0.0.1:9/")
+    #expect(
+      PackRemote.configured(info: [:], environment: [:], debug: true)?.base.absoluteString
+        == "https://raw.githubusercontent.com/v57/Localizations/main/")
+    #expect(PackRemote.configured(info: info, environment: [:], debug: true)?.base == release.base)
+  }
+
+  @Test func aBuildThatCantDownloadOffersNothing() async throws {
+    let store = PackStore(root: FileManager.default.temporaryDirectory.appendingPathComponent("packs-\(UUID().uuidString)"))
+    let packs = LanguagePacks(store: store, remote: nil, hooks: false)
+    packs.start(sources: ["App"])
+    #expect(packs.offer == nil)
+    #expect(!packs.languages.contains { if case .available = $0.state { true } else { false } })
+    await #expect(throws: LanguagePackError.unavailable) { try await packs.checkForUpdates() }
+    await #expect(throws: LanguagePackError.unavailable) { try await packs.download("de") }
+  }
+
+  @Test func namesThatAreLanguagesAndFiles() {
+    for code in ["de", "pt-BR", "zh-Hans", "sr-Latn-RS", "fil"] { #expect(Manifest.isLanguageCode(code), "\(code)") }
+    for code in ["", "DE", "d", "deut", "de-", "de/x", "../de", "de-B", "de-123456789", ".."] {
+      #expect(!Manifest.isLanguageCode(code), "\(code)")
+    }
+    for name in ["Localizable.strings", "Localizable.stringsdict", "InfoPlist.strings", "a_b+c-d.strings"] {
+      #expect(Manifest.isFileName(name), "\(name)")
+    }
+    for name in [".strings", "../x.strings", "x/y.strings", "Info.plist", "x.strings.plist", "x y.strings"] {
+      #expect(!Manifest.isFileName(name), "\(name)")
+    }
   }
 
   @Test func thePreferredLanguageMatchesByShorterForms() {

@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 #if canImport(FoundationNetworking)
@@ -5,6 +6,10 @@ import Foundation
 #endif
 
 /// v57/Localizations' `manifest.json`: every source's languages and their files.
+///
+/// Language codes and file names become paths (`<source>/<lang>.lproj/<name>`, here and in Application Support), so
+/// one that isn't a language code or a `.strings`/`.stringsdict` name is dropped when the manifest is read
+/// (`isLanguageCode`, `isFileName`; Code's release-languages refuses the same ones at release).
 struct Manifest: Decodable, Sendable {
   struct File: Decodable, Hashable, Sendable {
     let bytes: Int
@@ -14,6 +19,44 @@ struct Manifest: Decodable, Sendable {
   let version: Int
   /// source → language → file name → file.
   let sources: [String: [String: [String: File]]]
+
+  init(version: Int, sources: [String: [String: [String: File]]]) {
+    self.version = version
+    self.sources = sources.filter { Self.isSourceName($0.key) }.mapValues { languages in
+      languages.filter { Self.isLanguageCode($0.key) }.mapValues { files in files.filter { Self.isFileName($0.key) } }
+    }
+  }
+
+  init(from decoder: any Decoder) throws {
+    enum Keys: String, CodingKey { case version, sources }
+    let container = try decoder.container(keyedBy: Keys.self)
+    self.init(
+      version: try container.decode(Int.self, forKey: .version),
+      sources: try container.decode([String: [String: [String: File]]].self, forKey: .sources))
+  }
+
+  /// "de", "pt-BR", "zh-Hans": `^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$`.
+  static func isLanguageCode(_ code: String) -> Bool {
+    let parts = code.split(separator: "-", omittingEmptySubsequences: false)
+    guard let first = parts.first, (2...3).contains(first.count), first.allSatisfy({ $0.isASCII && $0.isLowercase })
+    else { return false }
+    return parts.dropFirst().allSatisfy { part in
+      (2...8).contains(part.count) && part.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber) }
+    }
+  }
+
+  /// "Localizable.strings", "Localizable.stringsdict": `^[A-Za-z0-9_+-]+\.(strings|stringsdict)$`.
+  static func isFileName(_ name: String) -> Bool {
+    guard let dot = name.lastIndex(of: "."), [".strings", ".stringsdict"].contains(String(name[dot...])) else {
+      return false
+    }
+    return isSourceName(String(name[..<dot]))
+  }
+
+  /// A source's (a bundle's) name: `^[A-Za-z0-9_+-]+$`.
+  static func isSourceName(_ name: String) -> Bool {
+    !name.isEmpty && name.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "_+-".contains($0)) }
+  }
 
   /// `code`'s files for `sources`, in their order.
   func files(of code: String, in sources: [String]) -> [PackFile] {
@@ -114,16 +157,52 @@ struct PackStore: Sendable {
   }
 }
 
-/// Where the files come from: v57/Localizations on GitHub, or `V57_LOCALIZATIONS_URL` (a folder or a server, for
-/// testing).
+/// Where the files come from: v57/Localizations on GitHub at the commit the release was built with
+/// (`V57LocalizationsCommit` in Info.plist), its manifest checked against the SHA-256 the release recorded
+/// (`V57LocalizationsManifest`) and every file against the manifest. A Release build without a commit downloads
+/// nothing (`configured` is nil); a Debug build without one reads `main`, or `V57_LOCALIZATIONS_URL` (a folder or a
+/// server, for testing), which a Release build ignores.
 struct PackRemote: Sendable {
   let base: URL
+  /// manifest.json's SHA-256 (hex), when the release recorded it.
+  var manifestSHA256: String? = nil
 
-  static var `default`: PackRemote {
-    let custom = ProcessInfo.processInfo.environment["V57_LOCALIZATIONS_URL"].flatMap { value -> URL? in
+  static let gitHub = "https://raw.githubusercontent.com/v57/Localizations/"
+
+  static var `default`: PackRemote? {
+    #if DEBUG
+      let debug = true
+    #else
+      let debug = false
+    #endif
+    return configured(
+      info: Bundle.main.infoDictionary ?? [:], environment: ProcessInfo.processInfo.environment, debug: debug)
+  }
+
+  /// The remote a build with this Info.plist and environment reads, or nil when it downloads nothing.
+  static func configured(info: [String: Any], environment: [String: String], debug: Bool) -> PackRemote? {
+    if debug, let custom = environment["V57_LOCALIZATIONS_URL"].flatMap({ value -> URL? in
       value.hasPrefix("/") ? URL(fileURLWithPath: value, isDirectory: true) : URL(string: value)
+    }) {
+      return PackRemote(base: custom)
     }
-    return PackRemote(base: custom ?? URL(string: "https://raw.githubusercontent.com/v57/Localizations/main/")!)
+    if let commit = info["V57LocalizationsCommit"] as? String {
+      guard isCommit(commit) else { return nil }
+      return PackRemote(
+        base: URL(string: gitHub + commit + "/")!,
+        manifestSHA256: (info["V57LocalizationsManifest"] as? String)?.lowercased())
+    }
+    return debug ? PackRemote(base: URL(string: gitHub + "main/")!) : nil
+  }
+
+  /// A full commit hash: 40 lowercase hex digits.
+  static func isCommit(_ text: String) -> Bool {
+    text.count == 40 && text.allSatisfy { $0.isHexDigit && !$0.isUppercase }
+  }
+
+  /// SHA-256 as lowercase hex.
+  static func sha256(_ data: Data) -> String {
+    SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
   }
 
   func data(at path: String) async throws -> Data {
@@ -139,6 +218,7 @@ struct PackRemote: Sendable {
 
   func manifest() async throws -> Manifest {
     let data = try await data(at: "manifest.json")
+    if let manifestSHA256, Self.sha256(data) != manifestSHA256 { throw LanguagePackError.badManifest }
     guard let manifest = try? JSONDecoder().decode(Manifest.self, from: data), manifest.version == 1 else {
       throw LanguagePackError.badManifest
     }

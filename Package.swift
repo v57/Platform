@@ -142,6 +142,10 @@ package.dependencies.append(
 for target in package.targets where ["PlatformMedia", "PlatformWeb", "PlatformCamera", "PlatformScan", "PlatformLanguages"].contains(target.name) {
   target.dependencies.append(.product(name: "SwiftUI", package: "SwiftUI"))
 }
+// PlatformLanguages checks downloaded files' SHA-256 with CryptoKit: v57/SwiftUI's stand-in (swift-crypto).
+for target in package.targets where target.name == "PlatformLanguages" {
+  target.dependencies.append(.product(name: "CryptoKit", package: "SwiftUI"))
+}
 #endif
 #if os(Linux)
 // GStreamer for PlatformMedia (`apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev`, plus

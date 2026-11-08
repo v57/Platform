@@ -67,10 +67,11 @@ public final class LanguagePacks {
   private var downloading: Set<String> = []
   private var offered: Set<String>
   private let store: PackStore
-  private let remote: PackRemote
+  /// Where downloads come from; nil in a Release build that has no v57/Localizations commit (no downloads).
+  private let remote: PackRemote?
   private let hooks: Bool
 
-  init(store: PackStore, remote: PackRemote, hooks: Bool) {
+  init(store: PackStore, remote: PackRemote?, hooks: Bool) {
     self.store = store
     self.remote = remote
     self.hooks = hooks
@@ -108,6 +109,7 @@ public final class LanguagePacks {
   /// Reads the manifest: the languages the app's sources have there and whether downloaded ones have newer files.
   @discardableResult
   public func checkForUpdates() async throws -> Bool {
+    guard let remote else { throw LanguagePackError.unavailable }
     let manifest = try await remote.manifest()
     self.manifest = manifest
     checked = Date()
@@ -121,6 +123,8 @@ public final class LanguagePacks {
   /// when the app runs in that language. Elsewhere than on Apple platforms the language's ICU formats come with it
   /// when the app's build lacks them.
   public func download(_ code: String) async throws {
+    guard let remote else { throw LanguagePackError.unavailable }
+    guard Manifest.isLanguageCode(code) else { throw LanguagePackError.noTranslations(code) }
     guard !downloading.contains(code) else { return }
     downloading.insert(code)
     refresh()
@@ -208,7 +212,8 @@ public final class LanguagePacks {
 
   private func refresh() {
     let included = Set(Self.included)
-    let downloadable = Self.downloadable
+    // A build that can't download (a Release build without a pinned commit) offers nothing.
+    let downloadable = remote == nil ? [:] : Self.downloadable
     var codes = included.union(downloadable.keys).union(store.downloaded())
     if let manifest { codes.formUnion(manifest.languages(in: sources)) }
     codes.remove("Base")
@@ -241,14 +246,20 @@ public final class LanguagePacks {
     }
   }
 
-  /// Downloads `files` and checks every line, into a new folder of the store.
+  /// Downloads `files`, checks each against the manifest's SHA-256 and every line against its key, into a new folder
+  /// of the store.
   nonisolated private static func fetch(_ files: [PackFile], language: String, remote: PackRemote, store: PackStore)
     async throws -> URL
   {
     let folder = try store.newFolder(for: language)
     do {
       for file in files {
-        let data = try await remote.data(at: "\(file.source)/\(language).lproj/\(file.name)")
+        // The manifest dropped any other names already; checked again because they become paths.
+        guard Manifest.isSourceName(file.source), Manifest.isLanguageCode(language), Manifest.isFileName(file.name)
+        else { throw LanguagePackError.badManifest }
+        let path = "\(file.source)/\(language).lproj/\(file.name)"
+        let data = try await remote.data(at: path)
+        guard PackRemote.sha256(data) == file.sha256.lowercased() else { throw LanguagePackError.badFile(path) }
         let checked: Data
         if file.name.hasSuffix(".stringsdict") {
           let table = try FormatCheck.checkedStringsdict(data).table
@@ -274,6 +285,10 @@ public enum LanguagePackError: LocalizedError, Equatable {
   case noTranslations(String)
   case server(Int)
   case badManifest
+  /// A file isn't the one the manifest describes.
+  case badFile(String)
+  /// This build downloads no translations (a Release build without a v57/Localizations commit).
+  case unavailable
 
   public var errorDescription: String? {
     switch self {
@@ -284,6 +299,10 @@ public enum LanguagePackError: LocalizedError, Equatable {
       return "The download failed (\(status == 0 ? "no response" : "HTTP \(status)"))."
     case .badManifest:
       return "The list of translations couldn't be read."
+    case .badFile(let path):
+      return "\(path) isn't the file the list of translations describes."
+    case .unavailable:
+      return "This build of the app can't download translations."
     }
   }
 }
