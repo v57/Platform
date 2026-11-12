@@ -162,7 +162,13 @@ public final class LanguagePacks {
   static var included: [String] {
     let downloadable = Self.downloadable
     let own = Bundle.main.localizations.filter { $0 != "Base" && downloadable[$0] == nil }
-    return own.isEmpty ? [Bundle.main.developmentLocalization ?? "en"] : own
+    return own.isEmpty ? [developmentLanguage] : own
+  }
+
+  /// The app's development language. Read from Info.plist: swift-corelibs-foundation's
+  /// `Bundle.developmentLocalization` traps on Windows (Markdown 0.1.0 died at launch).
+  static var developmentLanguage: String {
+    Bundle.main.object(forInfoDictionaryKey: "CFBundleDevelopmentRegion") as? String ?? "en"
   }
 
   /// The languages a release can download, with their size (Info.plist's `V57Languages`).
@@ -179,7 +185,7 @@ public final class LanguagePacks {
 
   /// The language the system picked for the app, among `candidates`.
   static func appLanguage(candidates: [String]) -> String {
-    let development = Bundle.main.developmentLocalization ?? "en"
+    let development = developmentLanguage
     #if canImport(Darwin)
       // A release lists every language in CFBundleLocalizations, so the system's pick (per-app language included)
       // is the answer; a build that lists none falls back to the user's languages.
