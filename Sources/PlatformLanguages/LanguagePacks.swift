@@ -84,8 +84,17 @@ public final class LanguagePacks {
     shared.start(sources: sources)
   }
 
+  /// Answers English plural variants behind the app's own strings and behind its language's pack, so a count key
+  /// (`Text("\(n) servers")`) reads "1 server" whatever the app bundles, and a translation that lacks the key falls
+  /// back to English correctly pluralized. Safe to call more than once; `start(sources:)` calls it, and so does
+  /// ComponentKit's `componentKit(accent:)`, which every app puts on its scenes.
+  public static func useEnglishPlurals() {
+    PackHook.useEnglish(EnglishPlurals.bundle)
+  }
+
   func start(sources: [String]) {
     self.sources = sources
+    if hooks { Self.useEnglishPlurals() }
     language = Self.appLanguage(candidates: Self.included + Array(Self.downloadable.keys) + store.downloaded())
     if store.state(of: language) != nil { activate() }
     refresh()

@@ -305,5 +305,108 @@ import Testing
       PackHook.use([])
       #expect(String(localized: "Pack Hello \(name)") == "Pack Hello Ana")
     }
+
+    /// A stringsdict whose keys each have `forms` (plural category → text): what Scripts/build compiles.
+    static func stringsdict(_ entries: [String: [String: String]]) throws -> String {
+      let table = entries.mapValues { forms -> [String: Any] in
+        var value: [String: Any] = ["NSStringFormatSpecTypeKey": "NSStringPluralRuleType", "NSStringFormatValueTypeKey": "lld"]
+        value.merge(forms) { _, new in new }
+        return ["NSStringLocalizedFormatKey": "%#@value@", "value": value]
+      }
+      let data = try PropertyListSerialization.data(fromPropertyList: table, format: .xml, options: 0)
+      return String(decoding: data, as: UTF8.self)
+    }
+
+    /// English plural variants answer after the app's own tables and after a pack that lacks the key, never before a
+    /// pack that has it; without them a count reads as its key.
+    @Test func countsReadInEnglishPluralForms() throws {
+      let repository = Repository()
+      try repository.write(
+        "English", "en", "Localizable.stringsdict",
+        try Self.stringsdict([
+          "English %lld servers": ["one": "English %lld server", "other": "English %lld servers"],
+          "English %lld files": ["one": "English %lld file", "other": "English %lld files"],
+        ]))
+      try repository.write("Pack", "de", "Localizable.strings", "\"English Hello\" = \"Hallo\";\n")
+      try repository.write(
+        "Pack", "de", "Localizable.stringsdict",
+        try Self.stringsdict(["English %lld files": ["one": "%lld Datei", "other": "%lld Dateien"]]))
+      let english = try #require(Bundle(url: repository.root.appendingPathComponent("English")))
+      let pack = try #require(Bundle(url: repository.root.appendingPathComponent("Pack")))
+      defer {
+        PackHook.use([])
+        PackHook.useEnglish(nil)
+      }
+
+      #expect(String(localized: "English \(1) servers") == "English 1 servers")
+      PackHook.useEnglish(english)
+      #expect(String(localized: "English \(1) servers") == "English 1 server")
+      #expect(String(localized: "English \(3) servers") == "English 3 servers")
+      #expect(String(localized: "English \(0) servers") == "English 0 servers")
+      #expect(String(AttributedString(localized: "English \(1) servers").characters) == "English 1 server")
+      #expect(String.localizedStringWithFormat(NSLocalizedString("English %lld servers", comment: ""), 1) == "English 1 server")
+      // Keys that aren't counts stay the code's text, every time they're asked (a window's title once came back as
+      // the pack sentinel the second time).
+      for _ in 0..<2 {
+        #expect(String(localized: "English Hello") == "English Hello")
+        #expect(Bundle.main.localizedString(forKey: "English Title", value: nil, table: nil) == "English Title")
+        #expect(Bundle.main.localizedString(forKey: "English Title", value: "Shown", table: nil) == "Shown")
+        let attributed = Bundle.main.perform(
+          NSSelectorFromString("localizedAttributedStringForKey:value:table:"), with: "English Title", with: nil)
+        #expect((attributed?.takeUnretainedValue() as? NSAttributedString)?.string == "English Title")
+      }
+
+      // A pack answers first; a key it lacks falls back to English, pluralized.
+      PackHook.use([pack])
+      #expect(String(localized: "English Hello") == "Hallo")
+      #expect(String(localized: "English \(1) files") == "1 Datei")
+      #expect(String(localized: "English \(4) files") == "4 Dateien")
+      #expect(String(localized: "English \(1) servers") == "English 1 server")
+      #expect(String(localized: "English \(2) servers") == "English 2 servers")
+
+      PackHook.use([])
+      PackHook.useEnglish(nil)
+      #expect(String(localized: "English \(1) servers") == "English 1 servers")
+    }
+
+    /// A Russian pack keeps its own plural forms (one, few, many) with English behind it.
+    @Test func aPackKeepsItsLanguagesPluralForms() throws {
+      let repository = Repository()
+      try repository.write(
+        "English", "en", "Localizable.stringsdict",
+        try Self.stringsdict(["Russian %lld servers": ["one": "%lld server", "other": "%lld servers"]]))
+      try repository.write(
+        "Pack", "ru", "Localizable.stringsdict",
+        try Self.stringsdict([
+          "Russian %lld servers": [
+            "one": "%lld сервер", "few": "%lld сервера", "many": "%lld серверов", "other": "%lld сервера",
+          ]
+        ]))
+      let english = try #require(Bundle(url: repository.root.appendingPathComponent("English")))
+      let pack = try #require(Bundle(url: repository.root.appendingPathComponent("Pack")))
+      PackHook.useEnglish(english)
+      PackHook.use([pack])
+      defer {
+        PackHook.use([])
+        PackHook.useEnglish(nil)
+      }
+      let russian = Locale(identifier: "ru")
+      let format = NSLocalizedString("Russian %lld servers", comment: "")
+      #expect(String(format: format, locale: russian, 1) == "1 сервер")
+      #expect(String(format: format, locale: russian, 3) == "3 сервера")
+      #expect(String(format: format, locale: russian, 5) == "5 серверов")
+      #expect(String(format: format, locale: russian, 21) == "21 сервер")
+    }
+
+    /// The table this library ships answers the apps' real count keys.
+    @Test func theShippedEnglishTableAnswersTheAppsKeys() throws {
+      let english = try #require(EnglishPlurals.bundle)
+      PackHook.useEnglish(english)
+      defer { PackHook.useEnglish(nil) }
+      #expect(String(localized: "\(1) devices") == "1 device")
+      #expect(String(localized: "\(2) devices") == "2 devices")
+      #expect(String(localized: "\(1) logins") == "1 login")
+      #expect(String(localized: "\(1) items") == "1 item")
+    }
   #endif
 }

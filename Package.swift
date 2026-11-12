@@ -119,9 +119,10 @@ targets += [.target(name: "PlatformNotifications", swiftSettings: library)]
 products += [.library(name: "PlatformNotifications", targets: ["PlatformNotifications"])]
 
 // Languages: translations downloaded on request from v57/Localizations, every line checked, and answered in front of
-// the app's own strings (an NSBundle subclass on Apple platforms, v57/SwiftUI's text lookup elsewhere).
+// the app's own strings (an NSBundle subclass on Apple platforms, v57/SwiftUI's text lookup elsewhere); and English
+// plural variants behind them (`English`, written by v57/Localizations' Scripts/build).
 targets += [
-  .target(name: "PlatformLanguages", swiftSettings: library),
+  .target(name: "PlatformLanguages", resources: [.copy("English")], swiftSettings: library),
   .testTarget(name: "PlatformLanguagesTests", dependencies: ["PlatformLanguages"], swiftSettings: library),
 ]
 products += [.library(name: "PlatformLanguages", targets: ["PlatformLanguages"])]

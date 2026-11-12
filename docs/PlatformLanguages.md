@@ -11,6 +11,12 @@ checks every line, and makes the app's normal lookups find them. `Text("Open")`,
 translation like a bundled one. It stands in for the per-app language support of Apple's bundles, which only knows
 the languages inside the app.
 
+It also answers English counts: apps bundle no English tables (a key is its English text), so `Text("\(n) servers")`
+would read "1 servers". The library ships the English plural variants of every v57 source's count keys
+(`English/en.lproj/Localizable.stringsdict`, written by v57/Localizations' `Scripts/build`) and answers them behind the
+app's own tables and behind a pack that lacks the key, so a count reads "1 server" in English and falls back to English
+correctly pluralized in a language that isn't translated yet.
+
 It is not a translation tool or a string-catalog compiler, and it never downloads or checks anything unless the app
 asks (on the user's word).
 
@@ -80,6 +86,8 @@ arguments stands in for a release's list.
 
 - `LanguagePacks.start(sources:)`: names the sources and uses the downloaded pack of the app's language. Call in the
   App's `init`.
+- `LanguagePacks.useEnglishPlurals()`: answers the English plural variants (above), with or without packs; safe to
+  call more than once. `start(sources:)` calls it, and so does ComponentKit's `componentKit(accent:)`.
 - `LanguagePacks.shared` (main actor, `@Observable`):
   - `language`: the language the app runs in ("de"). Only that language's pack is used.
   - `languages`: every language the app has, can download or has downloaded (`LanguagePacks.Language`: `code`,
@@ -103,10 +111,12 @@ bundle identifier, in `Languages/<code>/`.
 ## Backends
 
 - **macOS, iOS**: the main bundle becomes a subclass whose string lookups ask the pack's bundles first, then the
-  bundle itself. The lookups SwiftUI, AppKit, UIKit and Foundation use are added only when `NSBundle` has them, so an
+  bundle itself, then the English plural variants, then the bundle again with the caller's default. The lookups SwiftUI, AppKit, UIKit and Foundation use are added only when `NSBundle` has them, so an
   OS that renames a private one shows English there and never crashes. The app's language is the system's pick from
   `CFBundleLocalizations`.
-- **Linux, Windows**: v57/SwiftUI asks the pack's bundles itself, and the app's language is SwiftUI's `AppLanguage`.
+- **Linux, Windows**: v57/SwiftUI asks the pack's bundles itself (the English plural variants last, found when the
+  package copies the `Platform_PlatformLanguages.resources` folder beside the executable; without it counts read as
+  their keys), and the app's language is SwiftUI's `AppLanguage`.
   When the app's build lacks the language's ICU formats, they are downloaded with it. CryptoKit is v57/SwiftUI's
   stand-in (swift-crypto).
 - **Android**: not built or tested.
@@ -125,4 +135,5 @@ swift test --filter PlatformLanguagesTests
 
 The tests cover the format checks, download, update and removal from a local folder, manifests that name paths, files
 and manifests that don't match their hashes, where downloads come from per build, and, on Apple platforms, the main
-bundle answering from a pack. No network is needed.
+bundle answering from a pack, English plural forms (alone, behind a pack that lacks the key, and from the shipped
+table) and a Russian pack keeping its one/few/many forms. No network is needed.
