@@ -2,6 +2,8 @@
 
 The system's own on-device language model. Part of [Platform](../README.md).
 
+<!-- platforms: macos ios linux=planned windows=planned android=planned -->
+
 ## Purpose
 
 `PlatformLanguageModel` wraps Apple's Foundation Models (`SystemLanguageModel`, `LanguageModelSession`) behind a call
@@ -48,3 +50,7 @@ func summary(of text: String) async throws -> String? {
 ## Testing
 
 The library has no test target. Test app code by checking `isAvailable` first, as the example does.
+
+## Related
+
+- [Platform](../README.md): the library table, one `Platform<Feature>` library per feature.

@@ -2,6 +2,8 @@
 
 Named messages of a few strings between one user's processes on one machine. Part of [Platform](../README.md).
 
+<!-- platforms: macos ios=planned linux windows=planned android=planned -->
+
 ## Purpose
 
 `PlatformBroadcast` replaces `DistributedNotificationCenter` for messages between an app and its own helpers: a
@@ -58,3 +60,7 @@ Broadcast.post("com.example.myapp.open", ["path": "~/Projects/MyApp"])
 ```bash
 swift test --filter PlatformBroadcastTests
 ```
+
+## Related
+
+- [Platform](../README.md): the library table, one `Platform<Feature>` library per feature.

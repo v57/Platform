@@ -2,6 +2,8 @@
 
 Translations downloaded on request and answered in front of the app's own strings. Part of [Platform](../README.md).
 
+<!-- platforms: macos ios linux windows android=planned -->
+
 ## Purpose
 
 An app ships with a few languages and can offer more without growing: `PlatformLanguages` downloads a language's
@@ -56,6 +58,32 @@ language once and list, download, update and remove languages. An app with its o
 }
 ```
 
+## Main API
+
+- `LanguagePacks.start(sources:)`: names the sources and uses the downloaded pack of the app's language. Call in the
+  App's `init`.
+- `LanguagePacks.useEnglishPlurals()`: answers the English plural variants (above), with or without packs; safe to
+  call more than once. `start(sources:)` calls it, and so does ComponentKit's `componentKit(accent:)`.
+- `LanguagePacks.shared` (main actor, `@Observable`):
+  - `language`: the language the app runs in ("de"). Only that language's pack is used.
+  - `languages`: every language the app has, can download or has downloaded (`LanguagePacks.Language`: `code`,
+    `name`, `ownName`, `state`, `isActive`), the app's language first. `State`: `.included`,
+    `.available(bytes:)`, `.downloading`, `.downloaded(bytes:updateAvailable:)`.
+  - `offer`, `dismissOffer()`: the app's language when it can be downloaded and hasn't been offered; ask once.
+  - `checkForUpdates() async throws -> Bool`: reads the manifest; true when a downloaded language has newer files.
+  - `download(_:) async throws`: downloads (or updates) a language for the app's sources and uses it at once when the
+    app runs in it.
+  - `remove(_:)`: deletes a downloaded language; when the app runs in it, its strings go back to the app's own.
+  - `revision`: changes whenever the app's strings change; views rebuilt on it show the new strings.
+  - `sources`, `checked` (when the manifest was last read in this launch).
+- `LanguagePackError`: `.noTranslations(String)`, `.server(Int)`, `.badManifest`, `.badFile(String)`,
+  `.unavailable`.
+- `FormatCheck`: `fits(_:key:)`, `fits(pluralEntry:key:)`, `checkedStrings(_:)` and `checkedStringsdict(_:)` (a
+  table with the misfits dropped, and the dropped keys), for checking translations elsewhere.
+
+Downloaded files live in Application Support (`~/.local/share` on Linux, `%APPDATA%` on Windows) under the app's
+bundle identifier, in `Languages/<code>/`.
+
 ## What a release must contain
 
 The packs read the app's `Info.plist`:
@@ -82,37 +110,12 @@ In a Debug build: without a commit the packs read `main`; `V57_LOCALIZATIONS_URL
 replaces the source for testing, and a Release build ignores it; `-V57Languages '{de = 1200;}'` in the launch
 arguments stands in for a release's list.
 
-## Main API
-
-- `LanguagePacks.start(sources:)`: names the sources and uses the downloaded pack of the app's language. Call in the
-  App's `init`.
-- `LanguagePacks.useEnglishPlurals()`: answers the English plural variants (above), with or without packs; safe to
-  call more than once. `start(sources:)` calls it, and so does ComponentKit's `componentKit(accent:)`.
-- `LanguagePacks.shared` (main actor, `@Observable`):
-  - `language`: the language the app runs in ("de"). Only that language's pack is used.
-  - `languages`: every language the app has, can download or has downloaded (`LanguagePacks.Language`: `code`,
-    `name`, `ownName`, `state`, `isActive`), the app's language first. `State`: `.included`,
-    `.available(bytes:)`, `.downloading`, `.downloaded(bytes:updateAvailable:)`.
-  - `offer`, `dismissOffer()`: the app's language when it can be downloaded and hasn't been offered; ask once.
-  - `checkForUpdates() async throws -> Bool`: reads the manifest; true when a downloaded language has newer files.
-  - `download(_:) async throws`: downloads (or updates) a language for the app's sources and uses it at once when the
-    app runs in it.
-  - `remove(_:)`: deletes a downloaded language; the app goes back to its development language.
-  - `revision`: changes whenever the app's strings change; views rebuilt on it show the new strings.
-  - `sources`, `checked` (when the manifest was last read in this launch).
-- `LanguagePackError`: `.noTranslations(String)`, `.server(Int)`, `.badManifest`, `.badFile(String)`,
-  `.unavailable`.
-- `FormatCheck`: `fits(_:key:)`, `fits(pluralEntry:key:)`, `checkedStrings(_:)` and `checkedStringsdict(_:)` (a
-  table with the misfits dropped, and the dropped keys), for checking translations elsewhere.
-
-Downloaded files live in Application Support (`~/.local/share` on Linux, `%APPDATA%` on Windows) under the app's
-bundle identifier, in `Languages/<code>/`.
-
 ## Backends
 
 - **macOS, iOS**: the main bundle becomes a subclass whose string lookups ask the pack's bundles first, then the
-  bundle itself, then the English plural variants, then the bundle again with the caller's default. The lookups SwiftUI, AppKit, UIKit and Foundation use are added only when `NSBundle` has them, so an
-  OS that renames a private one shows English there and never crashes. The app's language is the system's pick from
+  bundle itself, then the English plural variants when the bundle's answer is only the key or the caller's default.
+  The lookups SwiftUI, AppKit, UIKit and Foundation use are added only when `NSBundle` has them, so an OS that
+  renames a private one shows English there and never crashes. The app's language is the system's pick from
   `CFBundleLocalizations`.
 - **Linux, Windows**: v57/SwiftUI asks the pack's bundles itself (the English plural variants last, found when the
   package copies the `Platform_PlatformLanguages.resources` folder beside the executable; without it counts read as
@@ -125,7 +128,9 @@ bundle identifier, in `Languages/<code>/`.
 
 - **macOS, iOS**: supported. The lookup hook was checked on macOS 27 and iOS 27.2.
 - **Linux**: depends on v57/SwiftUI (GitHub's `main`, or `../SwiftUI` with `V57_LOCAL=1`).
-- **Windows**: the same code as Linux; not verified on Windows yet.
+- **Windows**: the same code as Linux. The development language is read from Info.plist's
+  `CFBundleDevelopmentRegion`, as swift-corelibs-foundation's `Bundle.developmentLocalization` traps on Windows.
+  Not fully tested on Windows yet.
 
 ## Testing
 
@@ -137,3 +142,9 @@ The tests cover the format checks, download, update and removal from a local fol
 and manifests that don't match their hashes, where downloads come from per build, and, on Apple platforms, the main
 bundle answering from a pack, English plural forms (alone, behind a pack that lacks the key, and from the shipped
 table) and a Russian pack keeping its one/few/many forms. No network is needed.
+
+## Related
+
+- [ComponentKit](../../Component/docs/ComponentKit.md): depends on this library; its Settings ▸ Languages pane and `kitLanguages()` drive `LanguagePacks.shared`, and `componentKit(accent:)` calls `useEnglishPlurals()`.
+- [SwiftUI](../../SwiftUI/docs/SwiftUI.md): answers the packs off Apple platforms (its text lookup and `AppLanguage`), and its [CryptoKit](../../SwiftUI/docs/CryptoKit.md) stand-in checks the downloads there.
+- [Platform](../README.md): the library table, one `Platform<Feature>` library per feature.

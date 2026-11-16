@@ -2,6 +2,8 @@
 
 Notifications the device shows by itself, with no push service. Part of [Platform](../README.md).
 
+<!-- platforms: macos ios linux=planned windows=planned android=planned -->
+
 ## Purpose
 
 `PlatformNotifications` replaces the parts of `UserNotifications` an app needs to tell the user that something it
@@ -63,3 +65,7 @@ func notifyMotion() async throws {
 ## Testing
 
 The library has no test target. Apps can branch on `UserNotifications.isSupported`.
+
+## Related
+
+- [Platform](../README.md): the library table, one `Platform<Feature>` library per feature.

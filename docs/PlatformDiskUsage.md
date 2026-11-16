@@ -3,6 +3,8 @@
 Disk usage that counts shared blocks once, identical files made into clones, and who may move a file. Part of
 [Platform](../README.md).
 
+<!-- platforms: macos ios linux=partial windows=partial android=planned -->
+
 ## Purpose
 
 `PlatformDiskUsage` replaces the `fts(3)`, `getattrlist` and `statfs` code a disk-space tool would otherwise write per
@@ -57,7 +59,8 @@ The calls block while they walk: run them off the main actor.
 
 ### DuplicateFiles
 
-- `DuplicateFiles.isSupported`: whether the system can make files clones of each other (the Mac's APFS).
+- `DuplicateFiles.isSupported`: whether the system can make files clones of each other (APFS: true on Apple
+  platforms, false elsewhere).
 - `find(in:)`: the identical files under some roots (`Found`: `groups`, `bytes` that cloning would free, `copyCount`).
   Files count as identical only when their contents and extended attributes match. Files under `minimumSize` (16 KB)
   are left out. It reads every file that has a same-sized twin and checks for cancellation between files.
@@ -88,9 +91,9 @@ The calls block while they walk: run them off the main actor.
 ## Platform notes
 
 - **macOS**: supported, the main target (disk-space tools, simulator cleanup).
-- **Linux**: builds; no clones, so `sharedElsewhere` only ever holds hard links and `DuplicateFiles.find` finds
-  nothing.
-- **Windows**: builds and its tests pass (hard links counted once); no clones.
+- **Linux**: builds; no clones, so `sharedElsewhere` only ever holds hard links, `DuplicateFiles.isSupported` is
+  false and `find` finds nothing.
+- **Windows**: builds and its tests pass (hard links counted once); no clones, as on Linux.
 - **iOS**: builds; untested.
 
 ## Testing
@@ -101,3 +104,7 @@ swift test --filter PlatformDiskUsageTests
 
 The test makes a file and a hard link to it in a temporary folder and checks the link counts once (on every
 platform, Windows included).
+
+## Related
+
+- [Platform](../README.md): the library table, one `Platform<Feature>` library per feature.

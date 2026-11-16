@@ -3,6 +3,8 @@
 What the device is and how it's doing: its name, model, CPU, memory, storage, heat, CPU load and network kind. Part
 of [Platform](../README.md).
 
+<!-- platforms: macos ios linux windows=planned android=planned -->
+
 ## Purpose
 
 `PlatformSystem` replaces the pieces of Mach, `sysctl`, `UIDevice`, `ProcessInfo` and Network.framework that apps use
@@ -72,3 +74,8 @@ import PlatformSystem
 ```bash
 swift test --filter PlatformSystemTests
 ```
+
+## Related
+
+- Shell's [ShellMonitoring](../../Shell/docs/ShellMonitoring.md) reads the CPU load through `CPULoad`.
+- [Platform](../README.md): the library table, one `Platform<Feature>` library per feature.

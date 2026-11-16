@@ -2,6 +2,8 @@
 
 A media player with its video view, and the system's Now Playing controls. Part of [Platform](../README.md).
 
+<!-- platforms: macos ios linux windows=planned android=planned -->
+
 ## Purpose
 
 `PlatformMedia` replaces AVFoundation's `AVPlayer` and `AVPlayerLayer` and MediaPlayer's `MPNowPlayingInfoCenter` and
@@ -102,3 +104,8 @@ PLATFORM_MEDIA_TEST_FILE=~/Movies/sample.mp4 swift test --filter PlatformMediaTe
 
 Without `PLATFORM_MEDIA_TEST_FILE` only the failure test runs (a file that can't be played). With it, the test opens
 the file, checks its length and video track, and plays it muted for a moment.
+
+## Related
+
+- [SwiftUI](../../SwiftUI/docs/SwiftUI.md): `PlatformVideoView` off Apple platforms (Linux).
+- [Platform](../README.md): the library table, one `Platform<Feature>` library per feature.

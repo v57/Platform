@@ -3,6 +3,8 @@
 Capture from the device's cameras, H.264 and HEVC encoding, fragmented MP4, a live video view and motion detection.
 Part of [Platform](../README.md).
 
+<!-- platforms: macos ios linux=planned windows=planned android=planned -->
+
 ## Purpose
 
 `PlatformCamera` replaces AVFoundation's capture APIs (`AVCaptureSession`, `AVCaptureMultiCamSession`), VideoToolbox's
@@ -46,7 +48,7 @@ On iOS and macOS the app's Info.plist needs `NSCameraUsageDescription`, as for a
 
 - `CameraCapture`: `isAvailable`, `access` (`CameraAccess`: `.notDetermined`, `.authorized`, `.denied`),
   `requestAccess() async -> Bool`, `devices()` (`[CameraDevice]`: `id`, `name`, `position` `.front`, `.back` or
-  `.external`; the back camera first) and `defaultDeviceID`.
+  `.external`; the default camera first, the back one where there is one) and `defaultDeviceID`.
 - `CameraRig()`: several cameras at once.
   - `run(_:) throws`: runs exactly these `CameraConfiguration`s (`device`, `width`, `height`, `fps`, `picture`);
     cameras left out stop. Blocks until the sessions are configured. Each camera gets the device format closest above
@@ -81,7 +83,7 @@ On iOS and macOS the app's Info.plist needs `NSCameraUsageDescription`, as for a
 
 ### Showing a stream
 
-- `CameraVideoRenderer()`: `enqueue(_:)` encoded frames from any thread, `reset()`.
+- `CameraVideoRenderer()` (made on the main actor): `enqueue(_:)` encoded frames from any thread, `reset()`.
 - `CameraVideoView(renderer:)`: the SwiftUI view showing the renderer's frames as they arrive, without buffering.
   SwiftUI overlays draw over the video.
 
@@ -126,3 +128,8 @@ swift test --filter PlatformCameraTests
 
 The tests cover motion detection (zones and the changed box) and, on Apple platforms, H.264 and HEVC encoding of
 generated frames; no camera is needed.
+
+## Related
+
+- [SwiftUI](../../SwiftUI/docs/SwiftUI.md): `CameraVideoView` off Apple platforms.
+- [Platform](../README.md): the library table, one `Platform<Feature>` library per feature.

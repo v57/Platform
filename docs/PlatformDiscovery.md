@@ -2,6 +2,8 @@
 
 Browsing and advertising DNS-SD (Bonjour, mDNS) services on the local network. Part of [Platform](../README.md).
 
+<!-- platforms: macos ios linux windows=planned android=planned -->
+
 ## Purpose
 
 `PlatformDiscovery` replaces `NetService`, `NWBrowser` and the `dns_sd` C API with one browser and one advertiser:
@@ -74,3 +76,7 @@ swift test --filter PlatformDiscoveryTests
 The test advertises a service of a type made for the run and finds it with a browser on the same machine. It needs
 the system's mDNS service (mDNSResponder; on Linux avahi-daemon, and it's skipped when `/run/avahi-daemon/socket` is
 missing).
+
+## Related
+
+- [Platform](../README.md): the library table, one `Platform<Feature>` library per feature.

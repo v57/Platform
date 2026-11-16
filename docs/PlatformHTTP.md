@@ -2,6 +2,8 @@
 
 An HTTP response body as it arrives, byte by byte or line by line. Part of [Platform](../README.md).
 
+<!-- platforms: macos ios linux windows android=planned -->
+
 ## Purpose
 
 `PlatformHTTP` replaces `URLSession.bytes(for:)`, which Apple's Foundation has and swift-corelibs-foundation (Linux,
@@ -64,3 +66,7 @@ swift test --filter PlatformHTTPTests
 ```
 
 The tests start a loopback HTTP server of their own; no network is needed.
+
+## Related
+
+- [Platform](../README.md): the library table, one `Platform<Feature>` library per feature.

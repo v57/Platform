@@ -2,6 +2,8 @@
 
 The platform a build runs on. Part of [Platform](../README.md).
 
+<!-- platforms: macos ios linux windows android=planned -->
+
 ## Purpose
 
 `PlatformKit` holds one enum, `Platform`, for the few decisions an app can't leave to a library (a desktop layout
@@ -45,3 +47,7 @@ Pure Swift with no system calls: it builds everywhere Swift does. The package de
 ```bash
 swift test --filter PlatformKitTests
 ```
+
+## Related
+
+- [Platform](../README.md): the library table, one `Platform<Feature>` library per feature.

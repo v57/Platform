@@ -3,6 +3,8 @@
 Image files without the platform's image types: their pixel size, their pictures scaled down, and pictures written as
 PNG or JPEG. Part of [Platform](../README.md).
 
+<!-- platforms: macos ios linux windows=planned android=planned -->
+
 ## Purpose
 
 `PlatformImage` replaces ImageIO (`CGImageSource`, `CGImageDestination`) for the common jobs: a thumbnail for a list,
@@ -61,3 +63,7 @@ Formats read: PNG, JPEG, HEIC on Apple platforms, and WebP where the system read
 ```bash
 swift test --filter PlatformImageTests
 ```
+
+## Related
+
+- [Platform](../README.md): the library table, one `Platform<Feature>` library per feature.

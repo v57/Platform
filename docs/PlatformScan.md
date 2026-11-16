@@ -3,6 +3,8 @@
 Pages read on the device: their text, the page's corners, the page straightened and cleaned up, an imported PDF's
 pages, a redacted and watermarked copy, and the document camera. Part of [Platform](../README.md).
 
+<!-- platforms: macos=partial ios linux=planned windows=planned android=planned -->
+
 ## Purpose
 
 `PlatformScan` replaces Vision's text recognition and document segmentation, Core Image's perspective correction and
@@ -85,7 +87,8 @@ of their own, not Swift's cooperative pool.
 
 ## Platform notes
 
-- **macOS, iOS**: supported.
+- **iOS**: supported.
+- **macOS**: everything except `DocumentCamera`, whose `isAvailable` is false there.
 - **Linux, Windows**: builds; the reading-order code is tested there, and each call says the reader isn't there yet.
 - **Android**: not built or tested.
 
@@ -98,3 +101,8 @@ swift test --filter PlatformScanTests
 On every platform the tests check reading order and line joining. On Apple platforms they also read generated pages,
 find and straighten a page, make thumbnails, check that hidden parts are black in the pixels and that the watermark
 covers the page, and read a PDF's text and pages.
+
+## Related
+
+- [SwiftUI](../../SwiftUI/docs/SwiftUI.md): `DocumentCamera` off Apple platforms.
+- [Platform](../README.md): the library table, one `Platform<Feature>` library per feature.

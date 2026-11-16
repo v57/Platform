@@ -2,6 +2,8 @@
 
 A web page and its SwiftUI view. Part of [Platform](../README.md).
 
+<!-- platforms: macos ios linux windows=planned android=planned -->
+
 ## Purpose
 
 `PlatformWeb` replaces WebKit's `WKWebView` and its navigation delegate with an observable page model and a view:
@@ -78,3 +80,8 @@ xvfb-run -a swift test --filter PlatformWebTests     # Linux: the engine needs a
 
 The test loads HTML into a page with no window and reads its state and JavaScript. On Linux it is skipped when
 `DISPLAY` isn't set.
+
+## Related
+
+- [SwiftUI](../../SwiftUI/docs/SwiftUI.md): `PlatformWebView` on Linux, through its GTK backend's `GtkWidgetRepresentable`.
+- [Platform](../README.md): the library table, one `Platform<Feature>` library per feature.

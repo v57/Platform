@@ -2,6 +2,8 @@
 
 The battery, keeping the device awake, and whether someone is using it. Part of [Platform](../README.md).
 
+<!-- platforms: macos ios=partial linux=partial windows=planned android=planned -->
+
 ## Purpose
 
 `PlatformPower` replaces the IOKit power APIs on macOS and `UIDevice`'s battery and the idle timer on iOS with one API:
@@ -72,10 +74,11 @@ Nothing here leaves the device or needs a permission.
 
 ## Platform notes
 
-- **macOS, iOS**: supported.
-- **Linux**: builds (the package is built on an Ubuntu VM). `SleepAssertion` needs systemd (`systemd-inhibit`);
-  without it the initializer returns `nil`. Battery changes are noticed within 30 s, as sysfs has no change
-  notification without udev.
+- **macOS**: supported.
+- **iOS**: battery and sleep assertions; no `UserPresence` (`isSupported` is false).
+- **Linux**: builds (the package is built on an Ubuntu VM); no `UserPresence`. `SleepAssertion` needs systemd
+  (`systemd-inhibit`); without it the initializer returns `nil`. Battery changes are noticed within 30 s, as sysfs
+  has no change notification without udev.
 - **Windows**: no backend yet: no battery, no sleep assertion, no presence.
 - **Android**: not built or tested yet.
 
@@ -86,3 +89,7 @@ swift test --filter PlatformPowerTests
 ```
 
 The tests read what the machine has; they don't need a battery.
+
+## Related
+
+- [Platform](../README.md): the library table, one `Platform<Feature>` library per feature.
